@@ -1,0 +1,24 @@
+# HandyCode 图标候选
+
+生成方式：内置 image_gen；以用户提供的 GIF 为编辑参考，分别生成四张静态透明 PNG。选择结果：方案 2。
+
+仓库只保留选定源图 `icon-02.png`；其余三张候选属于本机评审产物，已由 `.gitignore` 排除，不入库。
+
+源 GIF 不修改、不打包。编号与会话中的方案 1—4 一致。
+
+## 方案 1
+
+Use case: precise-object-edit / identity-preserve. Input is the user's reference chibi character. Create ONE static square Android launcher app icon for HandyCode, no words or letters. Preserve the same recognizable red-haired chibi girl's face, large cream eyes, red outline style, twin side hair ornaments with pale cyan flowers and gold details, central ahoge hair curl, tiny smile and blush. Replace the heart-sealed love-letter envelope in BOTH hands with an unmistakable small shipping parcel. Keep both small hands holding it at her chest. Clean flat anime/sticker artwork, crisp edges, readable at 48px. No animation, no contact sheet, no labels, no watermarks, no real shipping information. Keep the head, hands and parcel safely inside an icon-safe central area. Genuine alpha outside the icon artwork. Variant 1: closest to the reference artwork and proportions, full front-facing head and hands, kraft-brown rectangular cardboard shipping box with a cream packing-tape cross and a tiny blank shipping label. Transparent sticker cutout, without a background tile. Preserve the original expressive linework.
+
+## 方案 2
+
+Use case: precise-object-edit / identity-preserve. Input is the user's reference chibi character. Create ONE static square Android launcher app icon for HandyCode, no words or letters. Preserve the same recognizable red-haired chibi girl's face, large cream eyes, red outline style, twin side hair ornaments with pale cyan flowers and gold details, central ahoge hair curl, tiny smile and blush. Replace the heart-sealed love-letter envelope in BOTH hands with an unmistakable small shipping parcel. Keep both small hands holding it at her chest. Clean flat anime/sticker artwork, crisp edges, readable at 48px. No animation, no contact sheet, no labels, no watermarks, no real shipping information. Keep the head, hands and parcel safely inside an icon-safe central area. Genuine alpha outside the icon artwork. Variant 2: rounded app badge, same front-facing character holding a slightly larger cube-shaped kraft parcel, clean warm-cream rounded-square backing shape, pale cyan small accent from the existing flowers; transparent beyond the badge. Soft rounded contours, calm and cute, original character clearly recognizable.
+
+## 方案 3
+
+Use case: precise-object-edit / identity-preserve. Input is the user's reference chibi character. Create ONE static square Android launcher app icon for HandyCode, no words or letters. Preserve the same recognizable red-haired chibi girl's face, large cream eyes, red outline style, twin side hair ornaments with pale cyan flowers and gold details, central ahoge hair curl, tiny smile and blush. Replace the heart-sealed love-letter envelope in BOTH hands with an unmistakable small shipping parcel. Keep both small hands holding it at her chest. Clean flat anime/sticker artwork, crisp edges, readable at 48px. No animation, no contact sheet, no labels, no watermarks, no real shipping information. Keep the head, hands and parcel safely inside an icon-safe central area. Genuine alpha outside the icon artwork. Variant 3: playful close-up badge, same character and original red/cream palette; face slightly leaning toward a kraft parcel hugged in both hands, box turned three-quarters with clear sealed tape and a small blank label, tiny smiling mouth. Red hair stays the focus; cream circular backing disk and transparent outside disk/artwork. Avoid exaggerated perspective.
+
+## 方案 4
+
+Use case: precise-object-edit / identity-preserve. Input is the user's reference chibi character. Create ONE static square Android launcher app icon for HandyCode, no words or letters. Preserve the same recognizable red-haired chibi girl's face, large cream eyes, red outline style, twin side hair ornaments with pale cyan flowers and gold details, central ahoge hair curl, tiny smile and blush. Replace the heart-sealed love-letter envelope in BOTH hands with an unmistakable small shipping parcel. Keep both small hands holding it at her chest. Clean flat anime/sticker artwork, crisp edges, readable at 48px. No animation, no contact sheet, no labels, no watermarks, no real shipping information. Keep the head, hands and parcel safely inside an icon-safe central area. Genuine alpha outside the icon artwork. Variant 4: simplified premium launcher sticker, same character with distinctive ahoge, twin gold and cyan ornaments retained but simplified; slightly bolder clean red outlines, more compact head-and-parcel silhouette, parcel is warm ivory with kraft tape and a tiny red parcel/check pictogram (no text, no heart or envelope). Transparent background, balanced near-symmetry, especially clear at small icon sizes.
+

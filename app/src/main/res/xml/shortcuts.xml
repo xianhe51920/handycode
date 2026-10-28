@@ -1,0 +1,12 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="taobao" android:enabled="true" android:icon="@drawable/ic_launcher" android:shortcutShortLabel="@string/shortcut_taobao">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.fairycrane.handycode" android:targetClass="com.fairycrane.handycode.MainActivity">
+            <extra android:name="provider" android:value="taobao"/>
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="pinduoduo" android:enabled="true" android:icon="@drawable/ic_pinduoduo" android:shortcutShortLabel="@string/shortcut_pdd">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.fairycrane.handycode" android:targetClass="com.fairycrane.handycode.MainActivity">
+            <extra android:name="provider" android:value="pinduoduo"/>
+        </intent>
+    </shortcut>
+</shortcuts>

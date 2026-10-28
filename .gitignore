@@ -1,0 +1,24 @@
+node_modules/
+.env
+.env.*
+!.env.example
+local.properties
+.gradle/
+**/build/
+*.jks
+*.keystore
+.local/
+/android-test-sdk/
+/dist/
+/screenshots/
+# Internal handoff notes stay local; they contain device and workflow details.
+/HANDOFF.md
+# Build artifacts are distributed through GitHub Releases, not tracked here.
+/*.apk
+/*.sha256
+# The download Site has its own source repository and publishing history.
+/apk-download-site/
+# Only the chosen icon source is tracked; other candidates stay local.
+/design/icon-candidates/icon-01.png
+/design/icon-candidates/icon-03.png
+/design/icon-candidates/icon-04.png

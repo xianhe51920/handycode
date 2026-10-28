@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">HandyCode</string>
+    <string name="shortcut_taobao">淘宝身份码</string>
+    <string name="shortcut_pdd">拼多多身份码</string>
+</resources>

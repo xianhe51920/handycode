@@ -1,0 +1,3 @@
+# Preserve upstream license text, including its original trailing blank line.
+app/src/main/assets/licenses/androidx-webkit.txt whitespace=-blank-at-eof
+third_party/androidx-webkit-1.13.0/LICENSE.txt whitespace=-blank-at-eof

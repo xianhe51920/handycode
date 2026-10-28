@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+import {parseHTML} from 'linkedom';
+const script=readFileSync(new URL('../app/src/main/assets/taobao-login-chrome.js',import.meta.url),'utf8');
+const priorities=new WeakMap();
+const prototype=Object.getPrototypeOf(parseHTML('<div/>').document.querySelector('div').style);
+const originalSet=prototype.setProperty;
+prototype.setProperty=function(name,value,priority){let values=priorities.get(this);if(!values)priorities.set(this,values={});values[name]=priority||'';return originalSet.call(this,name,value);};
+prototype.getPropertyPriority=function(name){return priorities.get(this)?.[name]||'';};
+function fixture(hostname='pages-fast.m.taobao.com'){
+ const {window,document}=parseHTML('<html><body><section id="modal"><div id="caption">您需要登录才能继续访问<a>关闭</a></div><iframe src="https://login.m.taobao.com/login.htm?fixture=1" style="position:absolute;top:52px;height:575px;padding-top:52px"></iframe></section><div id="other">其他页面标题<a>关闭</a></div><div id="standalone">您需要登录才能继续访问<a>关闭</a></div><div id="form">您需要登录才能继续访问<a>关闭</a><input type="tel"/></div><button>获取验证码</button></body></html>');
+ delete window.HandyCodeTaobaoLoginChrome;
+ const callbacks=[],tasks=[];
+ const context={window,document,location:{hostname},MutationObserver:class{constructor(callback){callbacks.push(callback);}observe(){}},setTimeout(fn){tasks.push(fn);}};
+ runInNewContext(script,context);
+ return {window,document,context,callbacks,flush(){callbacks.forEach(callback=>callback());while(tasks.length)tasks.shift()();}};
+}
+let f=fixture(),frame=f.document.querySelector('iframe'),source=frame.getAttribute('src');
+assert.equal(f.document.getElementById('caption').style.display,'none');
+assert.equal(frame.style.top,'0px');assert.equal(frame.style.height,'100%');assert.equal(frame.style.paddingTop,'0px');
+assert.equal(frame.getAttribute('src'),source,'Official authentication frame is not navigated');
+assert.equal(f.document.querySelector('iframe'),frame,'Original frame and its OTP/session state are retained');
+assert.notEqual(f.document.getElementById('other').style.display,'none');
+assert.notEqual(f.document.getElementById('standalone').style.display,'none','Same wording without an adjacent login frame stays untouched');
+assert.notEqual(f.document.getElementById('form').style.display,'none');
+assert.ok(f.document.querySelector('input[type=tel]'));
+assert.equal(f.document.querySelector('button').textContent,'获取验证码');
+runInNewContext(script,f.context);assert.equal(f.callbacks.length,1,'Repeated native commits reuse the observer');
+f.document.getElementById('caption').style.setProperty('display','block');f.flush();
+assert.equal(f.document.getElementById('caption').style.display,'none','Upstream style updates cannot restore the strip');
+const later=f.document.createElement('section');later.innerHTML='<div id="late">您需要登录才能继续访问<a>关闭</a></div><iframe src="https://login.m.taobao.com/login.htm?fixture=2"></iframe>';
+f.document.body.appendChild(later);f.flush();
+assert.equal(f.document.getElementById('late').style.display,'none','Late-mounted caption is handled');
+assert.equal(later.querySelector('iframe').style.height,'100%');
+f=fixture('pages-fast.m.taobao.com.evil.example');
+assert.equal(f.callbacks.length,0);assert.notEqual(f.document.getElementById('caption').style.display,'none');
+console.log('PASS: scoped Taobao login caption removal, reclaimed frame space, frame/form preservation and late/style updates');

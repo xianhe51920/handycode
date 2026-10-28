@@ -1,0 +1,14 @@
+{
+    "name": "HandyCode",
+    "version": "0.7.6",
+    "versionCode": 31,
+    "configuration": "Release",
+    "tag": "v0.7.6",
+    "package": "com.fairycrane.handycode",
+    "file": "HandyCode-0.7.6-release.apk",
+    "sha256": "cb3c80e8e73d9a99ac1dfa2853553edf3c08df21b91d670201a128ab0fc061cc",
+    "bytes": 448291,
+    "minSdk": 26,
+    "targetSdk": 35,
+    "signerCertificateSha256": "aaf9b51c6d7e8b5e4a0d89b6b0067536ba45436a8e567ca12129787e936203e4"
+}

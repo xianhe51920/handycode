@@ -1,0 +1,89 @@
+{
+  "checkedAt": "2026-10-27T02:53:08.239Z",
+  "credentialsSent": false,
+  "personalIdentityApiCalled": false,
+  "personalIdentityCodeRetrieved": false,
+  "scope": "Public documents and credential-free gateway connectivity, not API integration.",
+  "observations": [
+    {
+      "id": "taobao_open",
+      "kind": "documentation",
+      "url": "https://open.taobao.com/",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 48
+    },
+    {
+      "id": "taobao_oauth_docs",
+      "kind": "documentation",
+      "url": "https://developer.alibaba.com/docs/doc.htm?articleId=102635&docType=1&treeId=796",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 24
+    },
+    {
+      "id": "cainiao_pickup_service",
+      "kind": "product_description",
+      "url": "https://tech.cainiao.com/productv2/productIndex/6",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 19
+    },
+    {
+      "id": "cainiao_api_docs",
+      "kind": "documentation_portal",
+      "url": "https://global.link.cainiao.com/",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 19
+    },
+    {
+      "id": "pinduoduo_open",
+      "kind": "documentation_portal",
+      "url": "https://open.pinduoduo.com/",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 18
+    },
+    {
+      "id": "pinduoduo_api_docs",
+      "kind": "documentation_portal",
+      "url": "https://open.pinduoduo.com/application/document/api",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 18
+    },
+    {
+      "id": "taobao_gateway",
+      "kind": "gateway_connectivity_only",
+      "url": "https://eco.taobao.com/router/rest?format=json",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 17
+    },
+    {
+      "id": "pinduoduo_gateway",
+      "kind": "gateway_connectivity_only",
+      "url": "https://gw-api.pinduoduo.com/api/router",
+      "outcome": "request_failed",
+      "error": "TypeError",
+      "message": "fetch failed",
+      "causeCode": "EACCES",
+      "elapsedMs": 17
+    }
+  ]
+}

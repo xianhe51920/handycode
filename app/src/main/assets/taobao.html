@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>淘宝取件</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:12px 10px 24px;background:#f5f6f8;color:#242b37;font:14px/1.5 system-ui,sans-serif}
+.hc-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff}
+.hc-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #f0f2f5}
+.hc-heading h2{margin:0;font-size:16px;font-weight:650}.hc-actions{display:flex;gap:12px;flex-shrink:0}
+.hc-actions button,.hc-actions a{padding:5px 0;color:#d4542d;background:none;border:0;font:inherit;font-size:12px;text-decoration:none}
+.hc-actions button:disabled{color:#8a929f}
+.hc-content{padding:10px;overflow:visible;min-width:0}.hc-loading{padding:28px 8px;color:#89919d;text-align:center;font-size:12px}
+.hc-content > .hc-section-enter{animation:hc-section-reveal .22s ease-out both}
+.hc-section-placeholder{height:100%;min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;gap:16px;padding:14px 8px;overflow:hidden}
+.hc-section-placeholder i{display:block;position:relative;flex-shrink:0;width:68%;height:14px;border-radius:7px;background:#edf0f4;overflow:hidden}
+.hc-section-placeholder i:nth-child(2){width:100%;height:72px}
+.hc-section-placeholder i::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);transform:translateX(-100%);animation:hc-section-shimmer 1.4s linear infinite;will-change:transform}
+.hc-section-placeholder[data-part="parcels"] i:nth-child(2){width:50%;height:44px}
+@keyframes hc-section-shimmer{to{transform:translateX(100%)}}
+@keyframes hc-section-reveal{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.hc-section-placeholder i::after,.hc-content > .hc-section-enter{animation:none}}
+/* Only extracted DOM is visible. Source documents never receive touches. */
+.hc-source{position:fixed;left:-100000px;top:0;width:calc(100vw - 42px);height:1000px;border:0;pointer-events:none}
+</style>
+</head>
+<body id="handycode-merged">
+<section class="hc-card">
+<div class="hc-heading"><h2>身份码</h2><div class="hc-actions"><button data-refresh="identity" type="button">刷新</button></div></div>
+<div class="hc-content" id="identity-content"><div class="hc-loading">正在加载官方身份码…</div></div>
+</section>
+<section class="hc-card">
+<div class="hc-heading"><h2>待取包裹</h2><div class="hc-actions"><button data-refresh="parcels" type="button">刷新</button></div></div>
+<div class="hc-content" id="parcels-content"><div class="hc-loading">正在加载官方包裹列表…</div></div>
+</section>
+<iframe class="hc-source" id="identity-source" src="@@IDENTITY_URL@@" title="身份码数据来源" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+<iframe class="hc-source" id="parcels-source" src="@@PARCELS_URL@@" title="包裹列表数据来源" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+<script>@@REFRESH_CONTROLLER@@</script>
+<script>@@OFFICIAL_IDENTITY@@</script>
+<script>
+(function(){
+'use strict';
+var sources={},links=new WeakMap(),touching=false,lastTouch=0;
+function showSectionLoading(state){
+ state.refreshPresentation=true;
+ var height=state.mount.getBoundingClientRect().height;
+ if(!state.mount.dataset.ready)height=Math.max(height,state.type==='identity'?220:160);
+ if(height>0)state.mount.style.height=height+'px';
+ state.mount.setAttribute('aria-busy','true');
+ delete state.mount.dataset.ready;
+ var placeholder=document.createElement('div');
+ placeholder.className='hc-section-placeholder';placeholder.dataset.part=state.type;
+ placeholder.setAttribute('aria-label',state.type==='identity'?'正在刷新身份码':'正在刷新待取包裹');
+ placeholder.innerHTML='<i></i><i></i><i></i>';
+ state.mount.replaceChildren(placeholder);
+}
+function presentSection(state,fresh){
+ var before=state.mount.getBoundingClientRect().height;
+ state.mount.style.height='';
+ if(state.refreshPresentation)fresh.classList.add('hc-section-enter');
+ state.mount.replaceChildren(fresh);state.mount.dataset.ready='true';
+ state.refreshPresentation=false;
+ var after=state.mount.getBoundingClientRect().height;
+ if(before>0&&Math.abs(after-before)>1&&state.mount.animate&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  state.mount.animate([{height:before+'px'},{height:after+'px'}],{duration:240,easing:'cubic-bezier(.2,.7,.2,1)'});
+ }
+}
+document.addEventListener('touchstart',function(){touching=true},{passive:true});
+function endTouch(){touching=false;lastTouch=Date.now()}
+document.addEventListener('touchend',endTouch,{passive:true});
+document.addEventListener('touchcancel',endTouch,{passive:true});
+var props=['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','font-style','line-height','letter-spacing','text-align','text-decoration','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','vertical-align','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','flex-basis','gap','grid-template-columns','grid-template-rows','object-fit','overflow-wrap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
+
+function clone(source,doc,budget,skip){
+ if(--budget.count<0)throw new Error('too-large');
+ if(source===skip||typeof skip==='function'&&skip(source))return null;
+ if(source.nodeType===3)return document.createTextNode(source.nodeValue);
+ if(source.nodeType!==1||/^(SCRIPT|STYLE|LINK|IFRAME|OBJECT|EMBED|FORM|INPUT|TEXTAREA|SELECT|NOSCRIPT)$/.test(source.tagName))return null;
+ var css=doc.defaultView.getComputedStyle(source);
+ if(css.display==='none'||css.visibility==='hidden')return null;
+ var copy;
+ if(source.tagName==='CANVAS'){
+  copy=document.createElement('img');
+  try{copy.src=source.toDataURL()}catch(e){return null}
+ }else{
+  copy=source.cloneNode(false);
+  Array.from(copy.attributes).forEach(function(a){if(/^(on|data-)/i.test(a.name)||/^(srcdoc|formaction)$/i.test(a.name))copy.removeAttribute(a.name)});
+  if(copy.namespaceURI!=='http://www.w3.org/2000/svg'){copy.removeAttribute('id');copy.removeAttribute('class')}
+  if(copy.tagName==='IMG'&&source.currentSrc)copy.src=source.currentSrc;
+  if(copy.tagName==='A'){copy.removeAttribute('href');copy.removeAttribute('target')}
+  Array.from(source.childNodes).forEach(function(child){var result=clone(child,doc,budget,skip);if(result)copy.appendChild(result)});
+ }
+ props.forEach(function(name){copy.style.setProperty(name,css.getPropertyValue(name),'important')});
+ copy.style.setProperty('box-sizing','border-box','important');
+ copy.style.setProperty('max-width','100%','important');
+ // Strip every inner scrolling surface from the projected DOM.
+ copy.style.setProperty('overflow','visible','important');
+ copy.style.setProperty('touch-action','pan-y','important');
+ if(/^(fixed|sticky)$/.test(css.position)||/auto|scroll/.test(css.overflowY)){
+  copy.style.setProperty('position','static','important');
+  copy.style.setProperty('height','auto','important');
+  copy.style.setProperty('max-height','none','important');
+  copy.style.setProperty('transform','none','important');
+ }
+ links.set(copy,source);
+ return copy;
+}
+function textElement(doc,label){
+ var walker=doc.createTreeWalker(doc.body,4),node;
+ while((node=walker.nextNode()))if(node.nodeValue.trim()===label)return node.parentElement;
+ return null;
+}
+function select(doc,type){
+ if(type==='identity')return doc.querySelector('[class*="wraper--q4Mag5Cd"]')||doc.querySelector('[class*="identity--"]');
+ var tab=textElement(doc,'待取件');
+ if(!tab)return null;
+ var candidate=tab.parentElement;
+ while(candidate&&candidate!==doc.body){
+  var text=candidate.textContent||'';
+  if(text.includes('追踪中')&&text.includes('已签收')&&candidate.getBoundingClientRect().height>110)return candidate;
+  candidate=candidate.parentElement;
+ }
+ return null;
+}
+function statusTabs(doc){
+ var candidate=textElement(doc,'待取件');
+ while(candidate&&candidate!==doc.body){
+  var text=candidate.textContent||'';
+  if(text.length<80&&text.includes('追踪中')&&text.includes('已签收')&&text.includes('已退回'))return candidate;
+  candidate=candidate.parentElement;
+ }
+ return null;
+}
+function rebindProjection(visible,fresh){
+ if(!visible||!fresh)return;
+ var original=links.get(fresh);
+ if(original)links.set(visible,original);
+ for(var i=0;i<visible.children.length;i++)rebindProjection(visible.children[i],fresh.children[i]);
+}
+function project(state){
+ if(touching||Date.now()-lastTouch<800){queue(state);return}
+ try{
+  var doc=state.frame.contentDocument;
+  if(!doc||!doc.body)return;
+  // A refresh can leave the previous document accessible until navigation starts.
+  if(doc===state.staleDocument)return;
+  bindDocument(state,doc);
+  if(state.type==='identity'){
+   var barcode=doc.querySelector('img[class*="width-origin--"],img[class*="width-rotate--"]');
+   if(!barcode||!barcode.complete||barcode.naturalWidth===0){HandyCodeOfficialIdentity.recover(doc,Date.now());return;}
+  }
+  if(state.type==='parcels'&&!state.pendingSelected){
+   var pending=textElement(doc,'待取件');
+   if(pending){state.pendingSelected=true;pending.click();queue(state);return}
+  }
+  var root=select(doc,state.type);
+  if(!root)return;
+  var signature=root.outerHTML;
+  if(signature===state.signature&&state.mount.dataset.ready){state.controller.finish();return}
+  var tabs=state.type==='parcels'?statusTabs(doc):null;
+  var skip=state.type==='parcels'?function(node){
+   return node===tabs||node.nodeType===1&&(node.textContent||'').replace(/\s/g,'')==='添加包裹';
+  }:null;
+  var fresh=clone(root,doc,{count:6000},skip);
+  if(!fresh)return;
+  if(state.type==='parcels'&&!fresh.textContent.replace(/\s/g,'').replace(/加载中[.。…]*/g,''))return;
+  [['position','static'],['width','100%'],['height','auto'],['min-height','0'],['max-height','none'],['margin','0'],['transform','none']].forEach(function(p){fresh.style.setProperty(p[0],p[1],'important')});
+  if(state.type==='identity'){
+   [['display','flex'],['flex-direction','column'],['align-items','center'],['justify-content','center'],['text-align','center'],['padding','16px 8px'],['gap','12px']].forEach(function(p){fresh.style.setProperty(p[0],p[1],'important')});
+   Array.from(fresh.children).forEach(function(child){
+    [['position','static'],['transform','none'],['left','auto'],['right','auto'],['margin','0'],['text-align','center'],['align-self','center']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
+    if(child.tagName!=='IMG'&&child.tagName!=='CANVAS'){
+     [['width','100%'],['height','auto'],['min-height','0'],['padding','0']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
+     var original=links.get(child);
+     if(original&&/have-authenticated/.test(original.className||'')){
+      [['display','inline-flex'],['width','auto'],['align-items','center'],['justify-content','center']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
+     }
+    }
+   });
+   Array.from(fresh.querySelectorAll('img')).forEach(function(image){
+    var original=links.get(image);
+    if(original&&/width-origin--|width-rotate--/.test(original.className||'')){
+     [['display','block'],['width','100%'],['height','82px'],['object-fit','fill'],['transform','none'],['margin','8px 0']].forEach(function(p){image.style.setProperty(p[0],p[1],'important')});
+    }
+   });
+  }
+  var visibleSignature=fresh.outerHTML;
+  if(state.mount.dataset.ready&&state.visibleSignature===visibleSignature&&state.mount.firstElementChild){
+   // Source-only changes (removed tabs, exposure metadata or image load
+   // events) must not restart a fade or replace an identical image. Rebind
+   // live official handlers if React replaced the original source nodes.
+   rebindProjection(state.mount.firstElementChild,fresh);
+  }else presentSection(state,fresh);
+  state.visibleSignature=visibleSignature;
+  state.signature=signature;
+  state.controller.finish();
+ }catch(error){
+  if(!state.mount.dataset.ready)state.mount.innerHTML='<div class="hc-loading">暂时无法整理官方内容，请刷新重试。</div>';
+ }
+}
+function queue(state){state.controller.queue()}
+function bindDocument(state,doc){
+ if(doc===state.boundDocument)return;
+ if(state.observer)state.observer.disconnect();
+ state.boundDocument=doc;state.signature=null;state.pendingSelected=false;
+ state.observer=new MutationObserver(function(){queue(state)});
+ state.observer.observe(doc.documentElement,{subtree:true,childList:true,characterData:true,attributes:true});
+ doc.addEventListener('load',function(){state.signature=null;queue(state)},true);
+ if(doc.readyState==='complete'&&doc.URL!=='about:blank')state.loaded=true;
+}
+['identity','parcels'].forEach(function(type){
+ var state=sources[type]={type:type,frame:document.getElementById(type+'-source'),mount:document.getElementById(type+'-content')};
+ state.controller=createHandyRefreshController({
+  project:function(){project(state)},
+  settled:function(){try{var doc=state.frame.contentDocument;if(type==='identity'&&doc&&HandyCodeOfficialIdentity.refreshControl(doc))return false;return state.loaded&&(!doc||doc.readyState==='complete')}catch(error){return state.loaded}},
+  reload:function(){
+   try{state.staleDocument=state.frame.contentDocument}catch(error){state.staleDocument=null}
+   state.loaded=false;state.pendingSelected=false;state.signature=null;
+   state.frame.src=state.frame.getAttribute('src');
+  },
+  busy:function(busy){
+   document.querySelectorAll('[data-refresh="'+type+'"]').forEach(function(button){button.disabled=busy;button.textContent=busy?'刷新中':'刷新'});
+   if(busy)showSectionLoading(state);else state.mount.setAttribute('aria-busy','false');
+  },
+  timeout:function(){delete state.mount.dataset.ready;state.signature=null;state.mount.innerHTML='<div class="hc-loading">官方内容暂未更新成功，请稍后刷新。</div>'}
+ });
+ state.frame.addEventListener('load',function(){
+  state.loaded=true;
+  // Load/redirect/late resource events only offer new data to projection.
+  // They never begin a new user-visible refresh cycle. Initial setup and
+  // explicit refresh/login completion own the loading state.
+  queue(state);
+ });
+ state.mount.addEventListener('click',function(event){
+  var node=event.target,original;
+  while(node&&node!==state.mount&&!(original=links.get(node)))node=node.parentNode;
+  if(!original||!original.isConnected)return;
+  event.preventDefault();
+  // Run the original official handler, retaining its live React state.
+  original.click();
+  queue(state);
+ });
+ setInterval(function(){if(!document.hidden)project(state)},5000);
+ // Probe immediately as well as observing load: cached source documents may
+ // have finished before this listener was attached.
+ state.controller.start();
+});
+document.querySelectorAll('[data-refresh]').forEach(function(button){
+ button.addEventListener('click',function(){
+  var state=sources[button.dataset.refresh];
+  state.controller.refresh();
+ });
+});
+window.HandyCodeRefresh=function(){Object.keys(sources).forEach(function(type){sources[type].controller.refresh()});return true};
+document.addEventListener('visibilitychange',function(){if(!document.hidden)Object.keys(sources).forEach(function(type){queue(sources[type])})});
+window.addEventListener('pagehide',function(){Object.keys(sources).forEach(function(type){sources[type].controller.dispose()})});
+})();
+</script>
+</body>
+</html>

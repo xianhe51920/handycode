@@ -1,0 +1,15 @@
+{
+  "name": "handycode",
+  "version": "0.7.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe:official": "node --use-env-proxy tools/probe-official.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
+  }
+}
