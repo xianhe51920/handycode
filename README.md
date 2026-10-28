@@ -2,9 +2,9 @@
 
 <p align="center"><img src="design/icon-candidates/icon-02.png" alt="HandyCode 应用图标" width="160"></p>
 
-将淘宝 / 菜鸟和拼多多的**官方身份码、待取包裹**集中到一个 Android 应用中。每个平台采用上下双卡片、整页滚动，保留官方登录与数据更新流程。
+将淘宝和拼多多的**官方身份码、待取包裹**集中到一个 Android 应用中。每个平台采用上下双卡片、整页滚动，保留官方登录与数据更新流程。
 
-HandyCode merges the official pickup-code and pending-parcel pages of Taobao/Cainiao and Pinduoduo into a single Android app. It is an unofficial project and is not affiliated with Alibaba or Pinduoduo.
+HandyCode merges the official pickup-code and pending-parcel pages of Taobao and Pinduoduo into a single Android app. It is an unofficial project and is not affiliated with Alibaba or Pinduoduo.
 
 当前版本：**0.7.6**，Android 8.0（API 26）及以上，目标 API 35。
 
@@ -15,7 +15,7 @@ HandyCode merges the official pickup-code and pending-parcel pages of Taobao/Cai
 
 ## 免责声明
 
-本项目为非官方客户端，与淘宝、菜鸟、拼多多及其所属公司无任何关联，也未获其授权或认可。
+本项目为非官方客户端，与淘宝、拼多多及其所属公司无任何关联，也未获其授权或认可。
 
 应用只在本机系统 WebView 中加载各平台官方页面，不自建账号服务、不代理业务接口、不采集或保存账号密码、验证码、Cookie 与码值。使用前请自行确认是否符合你所在地区的法律及各平台服务条款；因使用本应用产生的账号风险、风控或数据问题由使用者自行承担。
 
@@ -29,7 +29,7 @@ HandyCode merges the official pickup-code and pending-parcel pages of Taobao/Cai
 
 ## 隐私与登录
 
-**首次使用需要登录。** 应用内直接打开淘宝 / 菜鸟与拼多多的官方网页，登录、短信验证码、滑块验证都在这些官方页面里完成，凭据由系统 WebView 与平台服务器直接处理，应用不介入登录过程。
+**首次使用需要登录。** 应用内直接打开淘宝与拼多多的官方网页，登录、短信验证码、滑块验证都在这些官方页面里完成，凭据由系统 WebView 与平台服务器直接处理，应用不介入登录过程。
 
 **应用不获取个人信息：**
 
@@ -51,7 +51,7 @@ HandyCode merges the official pickup-code and pending-parcel pages of Taobao/Cai
 flowchart TD
     A[MainActivity 原生界面] --> B[淘宝 WebView]
     A --> C[PddPage / 拼多多 WebView]
-    B --> D[官方登录、身份码与菜鸟页面]
+    B --> D[官方登录与身份码页面]
     D --> E[本地双卡片 HTML + 官方来源 iframe]
     C --> F[官方 m.pinduoduo.net 网页]
     F --> G[官方同源 proxy/api 路由]
@@ -63,7 +63,7 @@ flowchart TD
 
 图中的同源代理是**拼多多已有的官方路由**，不由 HandyCode 提供；登录、验证码和业务请求仍在系统 WebView 中执行。
 
-## 淘宝 / 菜鸟实现原理
+## 淘宝实现原理
 
 - `MainActivity` 先加载固定官方身份码入口。`official-identity.js` 检查实际码内容、登录输入控件及跨域认证 iframe；只有官方页面已能显示有效内容，才切入合并布局，避免用空壳覆盖登录页。
 - `taobao.html` 在一个文档中展示身份码、待取包裹。官方来源 iframe 保留在后台，读取可访问的来源 DOM，并复制展示节点；卡片里的必要操作转发给原官方元素。
