@@ -34,6 +34,7 @@ public final class MainActivity extends Activity {
     private static final int BG = 0xfff7f8fb, ACCENT = 0xffeb6238;
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
     private static final int TAB_TAOBAO = 0, TAB_PDD = 1;
+    private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab";
     private WebView browser;
     private final Button[] navigation = new Button[2];
     private FrameLayout browserFrame, pinduoduoFrame;
@@ -153,7 +154,7 @@ public final class MainActivity extends Activity {
         if (state != null) {
             int restored = state.getInt("selected", TAB_TAOBAO);
             selected = restored == 1 || restored == 2 ? TAB_PDD : TAB_TAOBAO;
-        } else if ("pinduoduo".equals(getIntent().getStringExtra("provider"))) selected = TAB_PDD;
+        } else selected = initialTab();
         switchMotion = new SwitchMotion(selected);
         buildUi();
         SiteDataClearer.observe(logoutListener);
@@ -162,6 +163,24 @@ public final class MainActivity extends Activity {
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
         }
         selectPage(selected);
+    }
+
+    // A shortcut intent names its platform explicitly and wins over the saved
+    // tab; a plain launch reopens whatever tab was last on screen.
+    private int initialTab() {
+        String requested = getIntent().getStringExtra("provider");
+        if ("pinduoduo".equals(requested)) return TAB_PDD;
+        if ("taobao".equals(requested)) return TAB_TAOBAO;
+        return "pinduoduo".equals(lastTab()) ? TAB_PDD : TAB_TAOBAO;
+    }
+
+    private String lastTab() {
+        return getSharedPreferences(PREF_UI, MODE_PRIVATE).getString(KEY_LAST_TAB, null);
+    }
+
+    private void rememberTab(int tab) {
+        getSharedPreferences(PREF_UI, MODE_PRIVATE).edit()
+            .putString(KEY_LAST_TAB, tab == TAB_PDD ? "pinduoduo" : "taobao").apply();
     }
 
     private int dp(int value) {
@@ -603,6 +622,7 @@ public final class MainActivity extends Activity {
         selectionInitialized = true;
         boolean changed = selected != target;
         selected = target;
+        rememberTab(target);
         switchMotion.commit(target);
         for (int i = 0; i < navigation.length; i++) {
             boolean active = i == selected;
