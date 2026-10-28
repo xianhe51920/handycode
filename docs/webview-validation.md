@@ -1,6 +1,16 @@
 # 内嵌网页版本验证记录
 
-日期：2026-10-28（北京时间）。当前 HTML 实验分支构建版本 0.7.6，包名 `com.fairycrane.handycode`。以下按版本保留历史记录。
+日期：2026-10-28（北京时间）。当前 HTML 实验分支构建版本 0.7.7，包名 `com.fairycrane.handycode`。以下按版本保留历史记录。
+
+## 0.7.7：淘宝快捷方式图标与标签页记忆
+
+长按桌面图标时，「淘宝身份码」快捷方式显示的是应用自身插画，「拼多多身份码」显示的是拼多多标识。根因是 `res/xml/shortcuts.xml` 中淘宝那条写成 `@drawable/ic_launcher`，而平台图标 `drawable-nodpi/ic_taobao.png` 一直存在、此前只在标题栏使用。改为 `@drawable/ic_taobao` 后，两条快捷方式分别显示淘宝橙标与拼多多红标。
+
+本版同时记住上次停留的标签页：`MainActivity` 以 SharedPreferences（`ui_state` / `last_tab`）在 `completeSelection()` 落盘，冷启动时由 `initialTab()` 读取；快捷方式 intent 的 `provider` extra 优先于记忆值，避免点击「淘宝身份码」却落在拼多多。旋转等配置变更仍走 `savedInstanceState`，行为不变。
+
+既有 Java 回归（导航白名单 34 例、拼多多作用域 43 例、组件钩子、切换几何 332 例、退出清理 16 项）与前端 9 组脚本测试全部通过，编译/DEX/对齐及 v2+v3 签名通过，448,291 字节，SHA256 `e1c181cab09277641c85a45c7cfe8585916b669c61277dc89e4227b34e3ab5ab`。<手机IP>:<端口> 同签名覆盖安装 Success、登录数据保留，版本确认为 0.7.7 / code32。
+
+真机验证：长按图标确认两条快捷方式图标分别为淘宝橙标与拼多多红标；带 `provider=pinduoduo` 启动后强制停止，再无参数冷启动，界面落在拼多多并高亮底部对应标签；反向以 `provider=taobao` 同样通过。验证截图仅用于核对，确认后删除，不保存手机号或码值。
 
 ## 0.7.6：拼多多首帧补加载提示
 
