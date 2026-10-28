@@ -6,7 +6,7 @@
 
 HandyCode merges the official pickup-code and pending-parcel pages of Taobao and Pinduoduo into a single Android app. It is an unofficial project and is not affiliated with Alibaba or Pinduoduo.
 
-当前版本：**0.7.6**，Android 8.0（API 26）及以上，目标 API 35。
+当前版本：**0.7.7**，Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载 APK](https://github.com/xianhe51920/handycode/releases)
 - [版本、包大小及签名证书摘要](release.json)
