@@ -13,6 +13,7 @@ local.properties
 /screenshots/
 # Internal handoff notes stay local; they contain device and workflow details.
 /HANDOFF.md
+/HANDOFF-*.md
 # Build artifacts are distributed through GitHub Releases, not tracked here.
 /*.apk
 /*.sha256
