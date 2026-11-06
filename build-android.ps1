@@ -86,6 +86,8 @@ Invoke-Javac (Join-Path $buildRoot 'javac-tests.log') @('-encoding','UTF-8','--r
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\SiteClearQueue.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\TaobaoLoadGuard.java'),
     (Join-Path $projectRoot 'tests\TaobaoLoadGuardTest.java'),
+    (Join-Path $sourceRoot 'java\com\fairycrane\handycode\JdUrlPolicy.java'),
+    (Join-Path $projectRoot 'tests\JdUrlPolicyTest.java'),
     (Join-Path $projectRoot 'tests\SiteClearQueueTest.java'),
     (Join-Path $projectRoot 'tests\UrlPolicyTest.java'),
     (Join-Path $projectRoot 'tests\PddUrlPolicyTest.java'),
@@ -97,6 +99,9 @@ Invoke-Checked $java @('-cp',$testClasses,'PddBundleAdapterTest')
 Invoke-Checked $java @('-cp',$testClasses,'SwitchMotionTest')
 Invoke-Checked $java @('-cp',$testClasses,'SiteClearQueueTest')
 Invoke-Checked $java @('-cp',$testClasses,'TaobaoLoadGuardTest')
+Invoke-Checked $java @('-cp',$testClasses,'JdUrlPolicyTest')
+Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\jd-orders.test.mjs'))
+Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\scan-code-visibility.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-same-origin.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-section-refresh.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-login-client.test.mjs'))

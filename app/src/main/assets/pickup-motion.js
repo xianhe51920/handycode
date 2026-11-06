@@ -44,7 +44,7 @@
    placeholder.classList.add('hc-pickup-outgoing');
    placeholder.setAttribute('aria-hidden', 'true');
    placeholder.style.cssText += ';position:absolute;top:10px;left:10px;right:10px;height:' + placeholderHeight +
-    'px;pointer-events:none;background:white';
+    'px;pointer-events:none;background:var(--hc-card-surface,#fff)';
    mount.appendChild(placeholder);
    if (!animate(placeholder, [{opacity:1},{opacity:0}], {duration:220,easing:'ease-out'}, function () { placeholder.remove(); })) placeholder.remove();
    animate(content, [{opacity:0},{opacity:1}], {duration:280,easing:'ease-out'});

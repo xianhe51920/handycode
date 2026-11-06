@@ -20,6 +20,7 @@ final class PickupLoadingView extends View {
     private float scale, identityHeight, parcelsHeight, headingHeight;
     private ValueAnimator morph;
     private boolean animating;
+    private boolean dark;
     private boolean openingPhoneManagement;
     private long animationStarted;
 
@@ -65,6 +66,12 @@ final class PickupLoadingView extends View {
         morph.start();
     }
 
+    void setDark(boolean value) {
+        dark = value;
+        setBackgroundColor(dark ? AppTheme.bg(true) : 0xfff5f6f8);
+        invalidate();
+    }
+
     void stopMorph() { if (morph != null) morph.cancel(); }
 
     void setOpeningPhoneManagement(boolean opening) {
@@ -88,21 +95,21 @@ final class PickupLoadingView extends View {
     }
 
     private void skeleton(Canvas canvas, float x, float y, float w, float h) {
-        rect(canvas, x, y, w, h, 7, 0xffedf0f4);
+        rect(canvas, x, y, w, h, 7, AppTheme.shimmerBase(dark));
         float progress = animating ? ((SystemClock.uptimeMillis() - animationStarted) % 1400L) / 1400f : 0f;
         float center = x - w * .4f + progress * w * 1.8f;
         paint.setShader(new LinearGradient(center - w * .35f, 0, center + w * .35f, 0,
-                new int[]{0x00ffffff, 0xb3ffffff, 0x00ffffff}, null, Shader.TileMode.CLAMP));
+                new int[]{0x00ffffff, AppTheme.shimmerPeak(dark), 0x00ffffff}, null, Shader.TileMode.CLAMP));
         canvas.drawRoundRect(new RectF(x, y, x + w, y + h), 7, 7, paint);
         paint.setShader(null);
     }
 
     private void card(Canvas canvas, float y, float width, float bodyHeight, String title, boolean identity) {
-        rect(canvas, 10, y, width - 20, bodyHeight + headingHeight + 2, 16, 0xffe9ecf0);
-        rect(canvas, 11, y + 1, width - 22, bodyHeight + headingHeight, 15, Color.WHITE);
-        paint.setColor(0xfff0f2f5);
+        rect(canvas, 10, y, width - 20, bodyHeight + headingHeight + 2, 16, AppTheme.border(dark));
+        rect(canvas, 11, y + 1, width - 22, bodyHeight + headingHeight, 15, AppTheme.surface(dark));
+        paint.setColor(AppTheme.divider(dark));
         canvas.drawRect(11, y + headingHeight - 1, width - 11, y + headingHeight, paint);
-        paint.setColor(0xff242b37);
+        paint.setColor(AppTheme.ink(dark));
         paint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         paint.setTextSize(16);
         canvas.drawText(title, 25, y + headingHeight / 2 + 6, paint);
@@ -136,7 +143,7 @@ final class PickupLoadingView extends View {
         canvas.scale(scale, scale);
         float width = getWidth() / scale;
         if (openingPhoneManagement) {
-            paint.setColor(0xff697386);
+            paint.setColor(AppTheme.muted(dark));
             paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
             paint.setTextSize(13);
             paint.setTextAlign(Paint.Align.CENTER);
@@ -153,7 +160,7 @@ final class PickupLoadingView extends View {
         float noteY = parcelsTop + headingHeight + parcelsHeight + 26;
         if (noteY <= getHeight() / scale - 10) {
             paint.setShader(null);
-            paint.setColor(0xff697386);
+            paint.setColor(AppTheme.muted(dark));
             paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
             paint.setTextSize(12);
             paint.setTextAlign(Paint.Align.CENTER);

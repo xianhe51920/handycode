@@ -6,7 +6,7 @@
 
 HandyCode merges the official pickup-code and pending-parcel pages of Taobao and Pinduoduo into a single Android app. It is an unofficial project and is not affiliated with Alibaba or Pinduoduo.
 
-当前版本：**0.7.8**，Android 8.0（API 26）及以上，目标 API 35。
+最新正式版：**0.7.8**，Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载最新 APK 与查看更新说明](https://github.com/xianhe51920/handycode/releases/latest)
 - [版本、包大小及签名证书摘要](release.json)
@@ -34,7 +34,7 @@ HandyCode merges the official pickup-code and pending-parcel pages of Taobao and
 
 **首次使用需要登录。** 应用内直接打开淘宝与拼多多的官方网页，登录、短信验证码、滑块验证都在这些官方页面里完成，凭据由系统 WebView 与平台服务器直接处理，应用不介入登录过程。
 
-**应用不获取个人信息：**
+**应用如何处理登录与取件信息**
 
 - 只申请网络权限（`android.permission.INTERNET`），不申请存储、位置、通讯录、相机、短信、电话等权限
 - 不读取、不保存、不上传账号、密码、验证码与登录令牌
@@ -42,7 +42,7 @@ HandyCode merges the official pickup-code and pending-parcel pages of Taobao and
 - 没有自建服务器、统计 SDK 或崩溃上报服务，不接入任何埋点
 - 登录状态只以「已登录 / 未登录」的布尔值显示在界面上，不作为凭据使用
 - 身份码与待取包裹来自官方页面，只在本应用界面内展示，不写入文件、不导出、不上传
-- 本地只保存一项界面偏好：上次停留的平台（`taobao` 或 `pinduoduo` 两个固定值），不含账号、手机号或任何码值
+- 本地界面偏好保存上次停留的平台与主题模式，均为固定值
 - 退出登录时只清除当前平台在 WebView 中按站点保存的 Cookie 与本地存储，不动其他站点
 
 卸载应用或清除应用数据后，需要在官方页面重新登录。
@@ -116,8 +116,8 @@ https://m.pinduoduo.net/proxy/api/api/express_trackbox/...
 ### 4. 为什么登录状态能保留
 
 - 启用 WebView 的 Cookie 和 DOM Storage，复用同一应用的默认 WebView 数据目录，不在启动、切页、退出 Activity 或覆盖更新时清空它。
-- 页面完成和应用进入后台时执行 `CookieManager.flush()`，让 Cookie 存储及时落盘；`localStorage` 等仍由浏览器按来源管理。拼多多不依赖放开第三方 Cookie，而使用上述第一方官方代理。
-- 两个平台首次打开后保留各自 WebView 与当前文档。切页只是移动、裁剪视图，停止非当前页的原生骨架高光；应用进入后台才暂停 WebView，回来后恢复。
+- 页面完成和应用进入后台时执行 `CookieManager.flush()`，让 Cookie 存储及时落盘；`localStorage` 等仍由浏览器按来源管理。拼多多不依赖放开第三方 Cookie，而使用上述第一方官方代理。京东订单识别只在本机 WebView 和原生卡片之间传递展示所需的信息。
+- 各平台首次打开后保留各自 WebView 与当前文档。切页只是移动、裁剪视图，停止非当前页的原生骨架高光；应用进入后台时暂停 WebView，回来后恢复。京东切到后台标签时也暂停订单检查。
 - Release 沿用相同包名与签名，使用 `adb install -r` 覆盖安装，继续使用原沙箱数据。
 
 `flush()` 不会延长官方 Cookie 的过期时间，也不会把会话 Cookie 变成永久凭据。卸载、清除应用数据、主动退出、服务端会话失效或风控要求重新验证时，仍需要登录；电脑浏览器和官方 App 的会话也不会自动同步给本应用。
@@ -149,7 +149,7 @@ https://m.pinduoduo.net/proxy/api/api/express_trackbox/...
 
 键盘只缩减网页可用区域，底栏保持物理位置。登录状态提示使用固定阶段 / 布尔值；这只是界面状态，不作为认证凭据。
 
-退出时关闭当前平台旧网页，再用 AndroidX WebKit 的按站点删除能力清理其 Cookie、JS 存储和缓存，完成后打开登录入口。淘宝范围为项目允许的五个登录站点，拼多多为 `pinduoduo.net`。不会调用全局 Cookie / WebStorage 清理来退出单个平台。WebView 不支持该能力时提示更新。
+退出时关闭当前平台旧网页，再用 AndroidX WebKit 的按站点删除能力清理其 Cookie、JS 存储和缓存，完成后打开登录入口。淘宝范围为项目允许的五个登录站点，拼多多为 `pinduoduo.net`，京东为 `jd.com`。不会调用全局 Cookie / WebStorage 清理来退出单个平台。WebView 不支持该能力时提示更新。
 
 ## 构建 Release
 
@@ -168,7 +168,7 @@ AndroidX WebKit 精简库随仓库提供并在构建前校验 SHA256；其来源
 
 ## 应用图标
 
-图标为方案 2「圆角底板版」：奶油色圆角底板、深红描边、角色抱快递箱。源图 `design/icon-candidates/icon-02.png`，候选与生成提示词见 [design/icon-candidates](design/icon-candidates/PROMPTS.md)。
+图标采用奶油色圆角底板、深红描边与角色抱快递箱的设计。源图位于 `design/icon-candidates/icon-02.png`。
 
 采用 Android 自适应图标：`mipmap-anydpi-v26/ic_launcher.xml` 组合背景色 `#FCF6E7` 与前景位图，前景用 `<inset>` 内缩 13%。这个比例是按「底板描边正好落在 72dp 可见视口边缘」算出来的，使深红描边贴住图标边界；背景与底板同色，遮罩裁切不会露出接缝。
 
@@ -205,3 +205,20 @@ Java 文件均位于 `app/src/main/java/com/fairycrane/handycode/`，网页资�
 源码以 [MIT 许可](LICENSE) 发布。随仓库提供的 AndroidX WebKit 精简库为 Apache License 2.0，来源与许可文本见 [third_party/androidx-webkit-1.13.0](third_party/androidx-webkit-1.13.0/README.md)。
 
 应用图标由作者提供的参考图生成，仅作本项目标识使用；若其中涉及第三方角色形象，其权利归原权利人，MIT 许可不涵盖该图形。
+
+
+## 京东取件码（开发版）
+
+底部提供淘宝、拼多多和京东三个标签，支持液态玻璃底栏、三态主题与滑动切换。
+
+京东在本机 WebView 中打开官方登录和订单页面，识别页面订单响应及订单卡片中的数字/字母取件码，以原生列表展示。提供刷新、官方页面切换及按 jd.com 站点单独退出登录；不新增短信、通知读取、无障碍或存储权限，不抽取或另存 Cookie，不记录原始订单响应。
+
+范围仅为当前京东商城账号订单中实际返回的取件码，不生成动态身份码，也不保证覆盖他人寄来的京东快递或顺丰全部收件。上游页面改版、验证码或风控可能使识别暂时不可用，可使用“登录/官方页”核对。顺丰暂不接入。
+
+新增检查：JD HTTPS 导航白名单、退出站点隔离、订单响应识别、取消订单过滤、去重、取码及非京东来源阻断。真实账号和待取件订单的端到端验证仍需在手机上完成。
+
+## 扫码亮度（开发版）
+
+淘宝、拼多多的身份条码加载完成且完整显示在当前窗口内时，临时将本应用窗口亮度提高至最大。切换页面、码移出可视区域、打开弹窗或应用失去焦点后恢复先前亮度；不修改系统亮度，也不申请系统设置权限。京东数字取件码列表不触发身份码提亮。
+
+底栏标题使用单层固定坐标绘制，选中颜色随滑动进度过渡，玻璃背景独立动画。
