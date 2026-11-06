@@ -6,8 +6,8 @@
 <meta name="referrer" content="no-referrer">
 <title>淘宝取件</title>
 <style>
-*{box-sizing:border-box}body{margin:0;padding:12px 10px 24px;background:#f5f6f8;color:#242b37;font:14px/1.5 system-ui,sans-serif}
-.hc-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff}
+*{box-sizing:border-box}body{margin:0;padding:12px 10px 88px;background:#f5f6f8;color:#242b37;font:14px/1.5 system-ui,sans-serif;transition:background-color .2s,color .2s}
+.hc-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff;transition:background-color .2s,border-color .2s}
 .hc-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #f0f2f5}
 .hc-heading h2{margin:0;font-size:16px;font-weight:650}.hc-actions{display:flex;gap:12px;flex-shrink:0}
 .hc-actions button,.hc-actions a{padding:5px 0;color:#d4542d;background:none;border:0;font:inherit;font-size:12px;text-decoration:none}
@@ -19,6 +19,24 @@
 .hc-section-placeholder i:nth-child(2){width:100%;height:72px}
 .hc-section-placeholder i::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);transform:translateX(-100%);animation:hc-section-shimmer 1.4s linear infinite;will-change:transform}
 .hc-section-placeholder[data-part="parcels"] i:nth-child(2){width:50%;height:44px}
+html[data-hc-theme="dark"] body{background:#0f1218;color:#e6eaf2}
+html[data-hc-theme="dark"] .hc-card{background:#181c24;border-color:#262c36}
+html[data-hc-theme="dark"] .hc-heading{border-bottom-color:#232833;color:#e6eaf2}
+html[data-hc-theme="dark"] .hc-actions button,html[data-hc-theme="dark"] .hc-actions a{color:#ff855e}
+html[data-hc-theme="dark"] .hc-actions button:disabled{color:#636c7e}
+html[data-hc-theme="dark"] .hc-loading{color:#8e98aa}
+html[data-hc-theme="dark"] .hc-section-placeholder i{background:#232936}
+html[data-hc-theme="dark"] .hc-section-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+@media(prefers-color-scheme:dark){
+html:not([data-hc-theme="light"]) body{background:#0f1218;color:#e6eaf2}
+html:not([data-hc-theme="light"]) .hc-card{background:#181c24;border-color:#262c36}
+html:not([data-hc-theme="light"]) .hc-heading{border-bottom-color:#232833;color:#e6eaf2}
+html:not([data-hc-theme="light"]) .hc-actions button,html:not([data-hc-theme="light"]) .hc-actions a{color:#ff855e}
+html:not([data-hc-theme="light"]) .hc-actions button:disabled{color:#636c7e}
+html:not([data-hc-theme="light"]) .hc-loading{color:#8e98aa}
+html:not([data-hc-theme="light"]) .hc-section-placeholder i{background:#232936}
+html:not([data-hc-theme="light"]) .hc-section-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+}
 @keyframes hc-section-shimmer{to{transform:translateX(100%)}}
 @keyframes hc-section-reveal{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.hc-section-placeholder i::after,.hc-content > .hc-section-enter{animation:none}}
@@ -42,7 +60,57 @@
 <script>
 (function(){
 'use strict';
-var sources={},links=new WeakMap(),touching=false,lastTouch=0;
+var sources={},links=new WeakMap(),savedStyles=new WeakMap(),touching=false,lastTouch=0,darkOverride=null;
+function isDark(){
+ if(darkOverride!==null)return darkOverride;
+ return !!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+function parseRgb(val){
+ var m=val&&val.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+ return m?[+m[1],+m[2],+m[3]]:null;
+}
+function adaptTree(root,dark){
+ if(!root)return;
+ var walker=document.createTreeWalker(root,1),node=root;
+ while(node){
+  var rec=savedStyles.get(node);
+  if(!rec){
+   rec={color:node.style.getPropertyValue('color'),bg:node.style.getPropertyValue('background-color'),pad:node.style.getPropertyValue('padding'),rad:node.style.getPropertyValue('border-radius')};
+   savedStyles.set(node,rec);
+  }
+  if(dark){
+   var orig=links.get(node);
+   if(node.tagName==='IMG'&&orig&&/width-origin--|width-rotate--/.test(orig.className||'')){
+    node.style.setProperty('background-color','#ffffff','important');
+    node.style.setProperty('padding','6px 10px','important');
+    node.style.setProperty('border-radius','10px','important');
+   }else{
+    var bg=parseRgb(rec.bg);
+    if(bg&&bg[0]>225&&bg[1]>225&&bg[2]>225)node.style.setProperty('background-color','transparent','important');
+    var fg=parseRgb(rec.color);
+    if(fg){
+     if(fg[0]<105&&fg[1]<105&&fg[2]<120)node.style.setProperty('color','#e6eaf2','important');
+     else if(fg[0]<165&&fg[1]<165&&fg[2]<175)node.style.setProperty('color','#9aa4b5','important');
+    }
+   }
+  }else{
+   if(rec.color)node.style.setProperty('color',rec.color,'important');else node.style.removeProperty('color');
+   if(rec.bg)node.style.setProperty('background-color',rec.bg,'important');else node.style.removeProperty('background-color');
+   if(rec.pad)node.style.setProperty('padding',rec.pad,'important');else node.style.removeProperty('padding');
+   if(rec.rad)node.style.setProperty('border-radius',rec.rad,'important');else node.style.removeProperty('border-radius');
+  }
+  node=walker.nextNode();
+ }
+}
+window.HandyCodeSetDark=function(dark){
+ darkOverride=!!dark;
+ if(document.documentElement)document.documentElement.setAttribute('data-hc-theme',darkOverride?'dark':'light');
+ Object.keys(sources).forEach(function(k){
+  var m=sources[k].mount;
+  if(m&&m.firstElementChild)adaptTree(m.firstElementChild,darkOverride);
+ });
+ return darkOverride;
+};
 function showSectionLoading(state){
  state.refreshPresentation=true;
  var height=state.mount.getBoundingClientRect().height;
@@ -60,6 +128,7 @@ function presentSection(state,fresh){
  var before=state.mount.getBoundingClientRect().height;
  state.mount.style.height='';
  if(state.refreshPresentation)fresh.classList.add('hc-section-enter');
+ if(isDark())adaptTree(fresh,true);
  state.mount.replaceChildren(fresh);state.mount.dataset.ready='true';
  state.refreshPresentation=false;
  var after=state.mount.getBoundingClientRect().height;

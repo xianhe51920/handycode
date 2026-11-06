@@ -6,7 +6,7 @@
 
 HandyCode merges the official pickup-code and pending-parcel pages of Taobao and Pinduoduo into a single Android app. It is an unofficial project and is not affiliated with Alibaba or Pinduoduo.
 
-当前版本：**0.7.7**，Android 8.0（API 26）及以上，目标 API 35。
+当前版本：**0.8.3**，Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载 APK](https://github.com/xianhe51920/handycode/releases)
 - [版本、包大小及签名证书摘要](release.json)
@@ -201,3 +201,20 @@ Java 文件均位于 `app/src/main/java/com/fairycrane/handycode/`，网页资�
 源码以 [MIT 许可](LICENSE) 发布。随仓库提供的 AndroidX WebKit 精简库为 Apache License 2.0，来源与许可文本见 [third_party/androidx-webkit-1.13.0](third_party/androidx-webkit-1.13.0/README.md)。
 
 应用图标由作者提供的参考图生成，仅作本项目标识使用；若其中涉及第三方角色形象，其权利归原权利人，MIT 许可不涵盖该图形。
+
+
+## 京东取件码
+
+底部提供淘宝、拼多多和京东三个标签，支持液态玻璃底栏、三态主题与滑动切换。
+
+京东在本机 WebView 中打开官方登录和订单页面，识别页面订单响应及订单卡片中的数字/字母取件码，以原生列表展示。提供刷新、官方页面切换及按 jd.com 站点单独退出登录；不新增短信、通知读取、无障碍或存储权限，不抽取或另存 Cookie，不记录原始订单响应。
+
+范围仅为当前京东商城账号订单中实际返回的取件码，不生成动态身份码，也不保证覆盖他人寄来的京东快递或顺丰全部收件。上游页面改版、验证码或风控可能使识别暂时不可用，可使用“登录/官方页”核对。顺丰暂不接入。
+
+新增检查：JD HTTPS 导航白名单、退出站点隔离、订单响应识别、取消订单过滤、去重、取码及非京东来源阻断。真实账号和待取件订单的端到端验证仍需在手机上完成。
+
+## 扫码亮度
+
+淘宝、拼多多的身份条码加载完成且完整显示在当前窗口内时，临时将本应用窗口亮度提高至最大。切换页面、码移出可视区域、打开弹窗或应用失去焦点后恢复先前亮度；不修改系统亮度，也不申请系统设置权限。京东数字取件码列表不触发身份码提亮。
+
+底栏标题使用单层固定坐标绘制，选中颜色随滑动进度过渡，玻璃背景独立动画。

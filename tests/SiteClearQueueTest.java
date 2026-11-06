@@ -35,7 +35,7 @@ public class SiteClearQueueTest {
         check(LogoutSites.forPage(0)[0].equals("taobao.com"));
         check(LogoutSites.forPage(1)[0].equals("pinduoduo.net"));
         boolean rejected = false;
-        try { LogoutSites.forPage(2); } catch (IllegalArgumentException expected) { rejected = true; }
+        try { LogoutSites.forPage(3); } catch (IllegalArgumentException expected) { rejected = true; }
         check(rejected);
         System.out.println("Site clearing queue/policy: " + checks + " checks passed");
     }

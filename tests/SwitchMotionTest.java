@@ -45,6 +45,17 @@ public final class SwitchMotionTest {
         expect(motion.target(false, -1000, -30) == 1); // Outer edge stays put.
         motion.commit(0); motion.position(.8f);
         expect(motion.target(false, 1000, -50) == 0); // Fast reversal follows release direction.
+
+        // Multi-tab (4 platforms: Taobao, PDD, JD, SF) geometry and scrubbing checks
+        SwitchMotion fourTab = new SwitchMotion(1, 4);
+        expect(fourTab.pageCount() == 4 && fourTab.selected() == 1);
+        fourTab.drag(1, -240, 400);
+        expect(near(fourTab.position(), 1.6f) && fourTab.target(false) == 2);
+        fourTab.commit(2);
+        fourTab.drag(2, -240, 400);
+        expect(near(fourTab.position(), 2.6f) && fourTab.target(false) == 3);
+        fourTab.scrub(0f, 270f, 100f);
+        expect(near(fourTab.position(), 2.7f) && fourTab.target(false) == 3);
         System.out.println("PASS: " + checks + " switch geometry, half-screen threshold, cancellation, lazy-commit and direction cases");
     }
 }

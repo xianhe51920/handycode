@@ -17,6 +17,7 @@ final class ShimmerBlock extends View {
     private final float radius;
     private LinearGradient highlight;
     private float phase, band;
+    private boolean dark;
 
     ShimmerBlock(Context context, float radius) {
         super(context);
@@ -26,17 +27,31 @@ final class ShimmerBlock extends View {
 
     void setPhase(float value) { phase = value; invalidate(); }
 
+    void setDark(boolean value) {
+        if (dark == value) return;
+        dark = value;
+        rebuildGradient();
+        invalidate();
+    }
+
+    private void rebuildGradient() {
+        int width = getWidth(), height = getHeight();
+        if (width <= 0 || height <= 0) return;
+        band = Math.max(width * 0.45f, 32 * getResources().getDisplayMetrics().density);
+        int peak = AppTheme.shimmerPeak(dark);
+        highlight = new LinearGradient(-band, 0, band, Math.max(1, height),
+            new int[]{0x00ffffff, peak, 0x00ffffff}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
+    }
+
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         bounds.set(0, 0, width, height);
-        band = Math.max(width * 0.45f, 32 * getResources().getDisplayMetrics().density);
-        highlight = new LinearGradient(-band, 0, band, Math.max(1, height),
-            new int[]{0x00ffffff, 0xccffffff, 0x00ffffff}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
+        rebuildGradient();
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         paint.setShader(null);
-        paint.setColor(0xffedf0f4);
+        paint.setColor(AppTheme.shimmerBase(dark));
         canvas.drawRoundRect(bounds, radius, radius, paint);
         if (highlight != null) {
             translation.setTranslate((getWidth() + 2 * band) * phase - band, 0);

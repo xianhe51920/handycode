@@ -3,6 +3,8 @@ package com.fairycrane.handycode;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -24,21 +26,71 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
-    private static final int INK = 0xff242b37, MUTED = 0xff697386;
-    private static final int BG = 0xfff7f8fb, ACCENT = 0xffeb6238;
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
-    private static final int TAB_TAOBAO = 0, TAB_PDD = 1;
-    private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab";
+    private static final int TAB_TAOBAO = 0, TAB_PDD = 1, TAB_JD = 2, PAGE_COUNT = 3;
+    private static final String[] TAB_KEYS = {"taobao", "pinduoduo", "jd"};
+    private static final String[] TAB_NAMES = {"淘宝", "拼多多", "京东"};
+    private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab", KEY_THEME_MODE = "theme_mode";
+
+    private final android.os.Handler scanHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean scanBright;
+    private float previousBrightness;
+    private int scanGeneration;
+    private final Runnable scanWatch = this::checkScanBrightness;
+
+    private void setScanBrightness(boolean enabled) {
+        if (scanBright == enabled) return;
+        android.view.WindowManager.LayoutParams attrs = getWindow().getAttributes();
+        if (enabled) previousBrightness = attrs.screenBrightness;
+        attrs.screenBrightness = enabled ? 1f : previousBrightness;
+        scanBright = enabled;
+        getWindow().setAttributes(attrs);
+    }
+
+    private boolean canShowScanCode() {
+        return activityResumed && hasWindowFocus() && !pageDragging && switchAnimation == null
+            && Math.abs(switchMotion.position() - selected) < 0.001f
+            && popupDialog == null && !SiteDataClearer.isBusy()
+            && (selected == TAB_PDD || (selected == TAB_TAOBAO && combinedDisplayed
+                && transitionPanel != null && transitionPanel.getVisibility() != View.VISIBLE));
+    }
+
+    private void checkScanBrightness() {
+        scanHandler.removeCallbacks(scanWatch);
+        final int generation = ++scanGeneration;
+        final int page = selected;
+        if (!canShowScanCode()) {
+            setScanBrightness(false);
+            if (activityResumed) scanHandler.postDelayed(scanWatch, 500);
+            return;
+        }
+        android.webkit.ValueCallback<String> callback = value -> {
+            if (generation != scanGeneration) return;
+            setScanBrightness(page == selected && canShowScanCode() && "true".equals(value));
+            if (activityResumed) scanHandler.postDelayed(scanWatch, 500);
+        };
+        if (page == TAB_PDD) pddPage.checkVisibleScanCode(callback);
+        else if (browser != null) browser.evaluateJavascript(ScanCodeVisibility.SCRIPT, callback);
+        else callback.onReceiveValue("false");
+    }
+
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused) { ++scanGeneration; setScanBrightness(false); }
+        if (activityResumed) { scanHandler.removeCallbacks(scanWatch); scanHandler.post(scanWatch); }
+    }
+
     private WebView browser;
-    private final Button[] navigation = new Button[2];
+    private final Button[] navigation = new Button[PAGE_COUNT];
     private FrameLayout browserFrame, pinduoduoFrame;
     private PddPage pddPage;
+    private JdPage jdPage;
     private String combinedMarkup;
     private String combinedGateScript;
     private String officialIdentityScript;
@@ -47,20 +99,29 @@ public final class MainActivity extends Activity {
     private int popupGeneration;
     private boolean combinedDisplayed;
     private int selected = 0;
+    private int themeMode = AppTheme.MODE_SYSTEM;
+    private LinearLayout rootLayout;
+    private LinearLayout headerLayout;
+    private View headerDivider;
     private SwipeFrameLayout viewport;
-    private View bottomNavigation;
+    private LiquidGlassBar bottomBar;
     private FrameLayout titleViewport;
-    private final View[] titleRows = new View[2];
-    private View tabIndicator;
+    private final View[] titleRows = new View[PAGE_COUNT];
+    private final TextView[] titleLabels = new TextView[PAGE_COUNT];
+    private Button themeButton;
     private Button logoutButton;
     private android.graphics.drawable.Drawable logoutIcon;
-    private final boolean[] signedIn = new boolean[2];
+    private final boolean[] signedIn = new boolean[PAGE_COUNT];
     private SwitchMotion switchMotion;
     private android.animation.ValueAnimator switchAnimation;
     private boolean selectionInitialized, pageDragging, activityResumed;
-    private final boolean[] opened = new boolean[2];
+    private final boolean[] opened = new boolean[PAGE_COUNT];
     private float dragStart;
     private View transitionPanel;
+    private final java.util.List<View> transitionCards = new java.util.ArrayList<>();
+    private final java.util.List<TextView> transitionTitles = new java.util.ArrayList<>();
+    private TextView transitionNote;
+    private View errorPanelView;
     private long transitionStarted;
     private int transitionGeneration;
     private final java.util.List<ShimmerBlock> shimmerBlocks = new java.util.ArrayList<>();
@@ -68,15 +129,21 @@ public final class MainActivity extends Activity {
     private Dialog popupDialog;
     private WebView popupView;
     private long lastBlockedNotice = 0;
+
     private final SiteDataClearer.Observer logoutListener = new SiteDataClearer.Observer() {
         @Override public void onStarted(int page) {
             cancelSwitchAnimation();
             pageDragging = false;
             switchMotion.commit(selected);
-            opened[page] = false;
-            signedIn[page] = false;
-            if (page == TAB_PDD) pddPage.resetSessionView();
-            else {
+            if (page >= 0 && page < PAGE_COUNT) {
+                opened[page] = false;
+                signedIn[page] = false;
+            }
+            if (page == TAB_PDD) {
+                pddPage.resetSessionView();
+            } else if (page == TAB_JD) {
+                jdPage.resetSessionView();
+            } else {
                 ++combineGeneration;
                 ++popupGeneration;
                 combinedMarkup = null;
@@ -104,6 +171,108 @@ public final class MainActivity extends Activity {
         }
     };
 
+    private boolean isDark() {
+        return AppTheme.isDark(this, themeMode);
+    }
+
+    private void cycleThemeMode() {
+        themeMode = AppTheme.nextMode(themeMode);
+        getSharedPreferences(PREF_UI, MODE_PRIVATE).edit().putInt(KEY_THEME_MODE, themeMode).apply();
+        applyTheme();
+        String modeDesc = themeMode == AppTheme.MODE_SYSTEM ? "夜间模式：跟随系统"
+            : themeMode == AppTheme.MODE_DARK ? "已切换为深色模式" : "已切换为浅色模式";
+        android.widget.Toast.makeText(this, modeDesc, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private String themeButtonText() {
+        if (themeMode == AppTheme.MODE_DARK) return "☾ 深色";
+        if (themeMode == AppTheme.MODE_LIGHT) return "☀ 浅色";
+        return "◐ 自动";
+    }
+
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyTheme();
+    }
+
+    private void updateSystemBars(boolean dark) {
+        Window window = getWindow();
+        if (window == null) return;
+        window.setStatusBarColor(AppTheme.surface(dark));
+        window.setNavigationBarColor(AppTheme.bg(dark));
+        View decor = window.getDecorView();
+        if (decor == null) return;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController controller = decor.getWindowInsetsController();
+            if (controller != null) {
+                int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                controller.setSystemBarsAppearance(dark ? 0 : mask, mask);
+            }
+        }
+        int systemUi = dark ? 0 : (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            systemUi |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+        }
+        decor.setSystemUiVisibility(systemUi);
+    }
+
+    private void applyTheme() {
+        boolean dark = isDark();
+        updateSystemBars(dark);
+        int bg = AppTheme.bg(dark);
+        int surface = AppTheme.surface(dark);
+        int ink = AppTheme.ink(dark);
+        int muted = AppTheme.muted(dark);
+
+        if (rootLayout != null) rootLayout.setBackgroundColor(bg);
+        if (headerLayout != null) headerLayout.setBackgroundColor(surface);
+        if (headerDivider != null) headerDivider.setBackgroundColor(AppTheme.divider(dark));
+        for (TextView label : titleLabels) {
+            if (label != null) label.setTextColor(ink);
+        }
+        if (themeButton != null) {
+            themeButton.setText(themeButtonText());
+            themeButton.setTextColor(ink);
+            themeButton.setBackground(background(AppTheme.subtleFill(dark), 10));
+            themeButton.setContentDescription("切换外观模式，当前为" + AppTheme.modeLabel(themeMode));
+        }
+        if (logoutIcon != null) {
+            logoutIcon.setTint(ink);
+        }
+        if (viewport != null) viewport.setBackgroundColor(bg);
+        if (browserFrame != null) browserFrame.setBackgroundColor(bg);
+        if (pinduoduoFrame != null) pinduoduoFrame.setBackgroundColor(bg);
+
+        if (transitionPanel != null) transitionPanel.setBackgroundColor(bg);
+        for (View card : transitionCards) card.setBackground(background(surface, 16));
+        for (TextView title : transitionTitles) title.setTextColor(ink);
+        if (transitionNote != null) transitionNote.setTextColor(muted);
+        for (ShimmerBlock block : shimmerBlocks) block.setDark(dark);
+
+        if (errorPanelView != null && browserFrame != null) {
+            errorPanelView.setBackgroundColor(surface);
+            TextView errTitle = browserFrame.findViewWithTag("error_title");
+            TextView errDetail = browserFrame.findViewWithTag("error_detail");
+            if (errTitle != null) errTitle.setTextColor(ink);
+            if (errDetail != null) errDetail.setTextColor(muted);
+        }
+
+        if (browser != null) {
+            browser.setBackgroundColor(bg);
+            browser.evaluateJavascript(
+                "(function(d){if(document.documentElement)document.documentElement.setAttribute('data-hc-theme',d?'dark':'light');"
+                + "if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(d);})(" + dark + ")",
+                null
+            );
+        }
+        if (pddPage != null) pddPage.setDark(dark);
+        if (jdPage != null) jdPage.setDark(dark);
+        if (bottomBar != null) bottomBar.setDark(dark);
+        updateLogoutControls();
+    }
+
     private void logoutCurrentPage() {
         if (!signedIn[selected] || SiteDataClearer.isBusy() || switchAnimation != null || pageDragging) return;
         if (!SiteDataClearer.isSupported()) {
@@ -111,12 +280,14 @@ public final class MainActivity extends Activity {
                 android.widget.Toast.LENGTH_LONG).show();
             return;
         }
-        // Capture the settled platform; clearing must never follow a later tab.
         SiteDataClearer.start(selected);
     }
 
     private void updateLogoutControls() {
         if (logoutButton == null) return;
+        boolean dark = isDark();
+        int ink = AppTheme.ink(dark);
+        int muted = AppTheme.muted(dark);
         boolean busy = SiteDataClearer.isBusy();
         boolean authenticated = signedIn[selected];
         boolean enabled = authenticated && !busy && !pageDragging && switchAnimation == null
@@ -124,39 +295,41 @@ public final class MainActivity extends Activity {
         logoutButton.setEnabled(enabled);
         logoutButton.setAlpha(!authenticated && !busy || enabled ? 1f : .45f);
         logoutButton.setText(busy ? "退出中" : authenticated ? "退出登录" : "未登录");
-        logoutButton.setTextColor(authenticated ? INK : MUTED);
+        logoutButton.setTextColor(authenticated ? ink : muted);
+        if (logoutIcon != null) logoutIcon.setTint(authenticated ? ink : muted);
         logoutButton.setCompoundDrawablesRelative(null, null, authenticated || busy ? logoutIcon : null, null);
-        String platform = selected == TAB_PDD ? "拼多多" : "淘宝";
+        String platform = TAB_NAMES[Math.max(0, Math.min(PAGE_COUNT - 1, selected))];
         logoutButton.setContentDescription(busy ? "正在退出" + platform + "登录"
             : authenticated ? "退出" + platform + "登录" : platform + "未登录");
         for (Button tab : navigation) if (tab != null) tab.setEnabled(!busy);
         if (viewport != null) viewport.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
-        if (bottomNavigation != null) ((SwipeFrameLayout)bottomNavigation).setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
+        if (bottomBar != null) bottomBar.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
     }
 
     private void setSignedIn(int page, boolean value) {
         if (value && SiteDataClearer.isBusy()) return;
-        signedIn[page] = value;
-        updateLogoutControls();
+        if (page >= 0 && page < PAGE_COUNT) {
+            signedIn[page] = value;
+            updateLogoutControls();
+        }
     }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(Color.WHITE);
+        themeMode = getSharedPreferences(PREF_UI, MODE_PRIVATE).getInt(KEY_THEME_MODE, AppTheme.MODE_SYSTEM);
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
-        int systemUi = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
-        else systemUi |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-        getWindow().getDecorView().setSystemUiVisibility(systemUi);
         WebView.setWebContentsDebuggingEnabled(false);
         if (state != null) {
             int restored = state.getInt("selected", TAB_TAOBAO);
-            selected = restored == 1 || restored == 2 ? TAB_PDD : TAB_TAOBAO;
-        } else selected = initialTab();
-        switchMotion = new SwitchMotion(selected);
+            selected = Math.max(0, Math.min(PAGE_COUNT - 1, restored));
+        } else {
+            selected = initialTab(getIntent());
+        }
+        switchMotion = new SwitchMotion(selected, PAGE_COUNT);
         buildUi();
+        applyTheme();
         SiteDataClearer.observe(logoutListener);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -165,13 +338,28 @@ public final class MainActivity extends Activity {
         selectPage(selected);
     }
 
-    // A shortcut intent names its platform explicitly and wins over the saved
-    // tab; a plain launch reopens whatever tab was last on screen.
-    private int initialTab() {
-        String requested = getIntent().getStringExtra("provider");
-        if ("pinduoduo".equals(requested)) return TAB_PDD;
-        if ("taobao".equals(requested)) return TAB_TAOBAO;
-        return "pinduoduo".equals(lastTab()) ? TAB_PDD : TAB_TAOBAO;
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.hasExtra("provider")) {
+            selectPage(initialTab(intent));
+        }
+    }
+
+    private int initialTab(Intent intent) {
+        String requested = intent != null ? intent.getStringExtra("provider") : null;
+        int fromIntent = tabIndexForKey(requested);
+        if (fromIntent >= 0) return fromIntent;
+        int fromSaved = tabIndexForKey(lastTab());
+        return fromSaved >= 0 ? fromSaved : TAB_TAOBAO;
+    }
+
+    private static int tabIndexForKey(String key) {
+        if (key == null) return -1;
+        for (int i = 0; i < TAB_KEYS.length; i++) {
+            if (TAB_KEYS[i].equals(key)) return i;
+        }
+        return -1;
     }
 
     private String lastTab() {
@@ -179,8 +367,9 @@ public final class MainActivity extends Activity {
     }
 
     private void rememberTab(int tab) {
+        int clamped = Math.max(0, Math.min(PAGE_COUNT - 1, tab));
         getSharedPreferences(PREF_UI, MODE_PRIVATE).edit()
-            .putString(KEY_LAST_TAB, tab == TAB_PDD ? "pinduoduo" : "taobao").apply();
+            .putString(KEY_LAST_TAB, TAB_KEYS[clamped]).apply();
     }
 
     private int dp(int value) {
@@ -205,12 +394,13 @@ public final class MainActivity extends Activity {
     }
 
     private Button button(String text, boolean primary) {
+        boolean dark = isDark();
         Button view = new Button(this);
         view.setText(text);
         view.setAllCaps(false);
         view.setTextSize(14);
-        view.setTextColor(primary ? Color.WHITE : INK);
-        view.setBackground(background(primary ? ACCENT : 0xffedf0f5, 12));
+        view.setTextColor(primary ? Color.WHITE : AppTheme.ink(dark));
+        view.setBackground(background(primary ? AppTheme.ACCENT : AppTheme.subtleFill(dark), 12));
         view.setMinHeight(0);
         view.setMinimumHeight(0);
         view.setPadding(dp(10), 0, dp(10), 0);
@@ -223,23 +413,22 @@ public final class MainActivity extends Activity {
     }
 
     private void buildUi() {
+        boolean dark = isDark();
         LinearLayout root = new LinearLayout(this);
+        rootLayout = root;
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
+        root.setBackgroundColor(AppTheme.bg(dark));
         root.setFitsSystemWindows(false);
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             root.setOnApplyWindowInsetsListener((view, insets) -> {
                 android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars()
                     | android.view.WindowInsets.Type.displayCutout());
                 int keyboard = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
-                // Only the content viewport avoids IME. The root and bottom
-                // navigation keep their physical screen position under it.
                 view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
                 applyKeyboardPadding(keyboard, bars.bottom);
                 return insets;
             });
-        }
-        else {
+        } else {
             root.setOnApplyWindowInsetsListener((view, insets) -> {
                 view.setPadding(insets.getStableInsetLeft(), insets.getStableInsetTop(),
                     insets.getStableInsetRight(), insets.getStableInsetBottom());
@@ -256,22 +445,39 @@ public final class MainActivity extends Activity {
         setContentView(root);
 
         LinearLayout header = new LinearLayout(this);
+        headerLayout = header;
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(12), dp(8), dp(12), dp(8));
         header.setMinimumHeight(dp(56));
-        header.setBackgroundColor(Color.WHITE);
+        header.setBackgroundColor(AppTheme.surface(dark));
         titleViewport = new FrameLayout(this);
         titleViewport.setClipChildren(true);
-        titleRows[0] = platformTitle("淘宝", R.drawable.ic_taobao);
-        titleRows[1] = platformTitle("拼多多", R.drawable.ic_pinduoduo);
-        for (View title : titleRows) titleViewport.addView(title, new FrameLayout.LayoutParams(-1, -1));
+        int[] icons = {R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_jd};
+        for (int i = 0; i < PAGE_COUNT; i++) {
+            titleRows[i] = platformTitle(i, TAB_NAMES[i], icons[i]);
+            titleViewport.addView(titleRows[i], new FrameLayout.LayoutParams(-1, -1));
+        }
         header.addView(titleViewport, new LinearLayout.LayoutParams(0, dp(40), 1f));
+
+        themeButton = button(themeButtonText(), false);
+        themeButton.setTextSize(12);
+        themeButton.setMinWidth(0);
+        themeButton.setMinimumWidth(0);
+        themeButton.setPadding(dp(10), 0, dp(10), 0);
+        themeButton.setOnClickListener(v -> cycleThemeMode());
+        LinearLayout.LayoutParams themeLp = size(-2, 34);
+        themeLp.setMarginEnd(dp(6));
+        header.addView(themeButton, themeLp);
+
         logoutButton = button("未登录", false);
         logoutButton.setTextSize(13);
         logoutButton.setBackground(new android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(0x14000000), background(Color.TRANSPARENT, 10), null));
         logoutIcon = getDrawable(R.drawable.ic_logout);
-        logoutIcon.setBounds(0, 0, dp(18), dp(18));
+        if (logoutIcon != null) {
+            logoutIcon = logoutIcon.mutate();
+            logoutIcon.setBounds(0, 0, dp(18), dp(18));
+        }
         logoutButton.setCompoundDrawablesRelative(null, null, logoutIcon, null);
         logoutButton.setCompoundDrawablePadding(dp(5));
         logoutButton.setMinWidth(0);
@@ -280,50 +486,60 @@ public final class MainActivity extends Activity {
         header.addView(logoutButton, size(-2, 40));
         root.addView(header);
 
+        headerDivider = new View(this);
+        headerDivider.setBackgroundColor(AppTheme.divider(dark));
+        root.addView(headerDivider, size(-1, 1));
+
+        FrameLayout stage = new FrameLayout(this);
+        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
+
         viewport = new SwipeFrameLayout(this);
-        viewport.setListener(swipeListener());
+        viewport.setListener(pageSwipeListener());
         viewport.setCaptureSettlingTouches(true);
-        viewport.setBackgroundColor(Color.WHITE);
-        root.addView(viewport, new LinearLayout.LayoutParams(-1, 0, 1f));
+        viewport.setBackgroundColor(AppTheme.bg(dark));
+        stage.addView(viewport, new FrameLayout.LayoutParams(-1, -1));
+
         browserFrame = new FrameLayout(this);
-        browserFrame.setBackgroundColor(Color.WHITE);
+        browserFrame.setBackgroundColor(AppTheme.bg(dark));
         buildErrorPanel();
         buildTransitionPanel();
         viewport.addView(browserFrame, new FrameLayout.LayoutParams(-1, -1));
+
         pinduoduoFrame = new FrameLayout(this);
         pddPage = new PddPage(this, this::openPinduoduoIdentity, value -> setSignedIn(TAB_PDD, value));
         pinduoduoFrame.addView(pddPage, new FrameLayout.LayoutParams(-1, -1));
         viewport.addView(pinduoduoFrame, new FrameLayout.LayoutParams(-1, -1));
+        jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value));
+        viewport.addView(jdPage, new FrameLayout.LayoutParams(-1, -1));
 
-        View divider = new View(this);
-        divider.setBackgroundColor(0xffe9edf3);
-        root.addView(divider, size(-1, 1));
-        SwipeFrameLayout bottomBar = new SwipeFrameLayout(this);
-        bottomBar.setListener(swipeListener());
-        bottomNavigation = bottomBar;
-        bottomBar.setPadding(dp(10), dp(6), dp(10), dp(6));
-        bottomBar.setBackgroundColor(Color.WHITE);
-        tabIndicator = new View(this);
-        tabIndicator.setBackground(background(0xffffeee6, 12));
-        tabIndicator.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        bottomBar.addView(tabIndicator, new FrameLayout.LayoutParams(1, dp(48)));
+        bottomBar = new LiquidGlassBar(this);
+        bottomBar.setListener(barScrubListener());
+        bottomBar.setCaptureSettlingTouches(true);
+        bottomBar.setBackdropSource(viewport);
+        bottomBar.setPadding(dp(16), dp(5), dp(16), dp(9));
+        bottomBar.setBackgroundColor(Color.TRANSPARENT);
+
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setGravity(Gravity.CENTER_VERTICAL);
-        String[] destinations = {"淘宝", "拼多多"};
-        for (int i = 0; i < navigation.length; i++) {
+        for (int i = 0; i < PAGE_COUNT; i++) {
             final int page = i;
-            navigation[i] = button(destinations[i], false);
+            navigation[i] = button(TAB_NAMES[i], false);
             navigation[i].setBackgroundColor(Color.TRANSPARENT);
+            navigation[i].setTextColor(Color.TRANSPARENT);
             navigation[i].setStateListAnimator(null);
             navigation[i].setElevation(0);
-            navigation[i].setContentDescription("切换到" + destinations[i]);
+            navigation[i].setContentDescription("切换到" + TAB_NAMES[i]);
             navigation[i].setOnClickListener(v -> selectPage(page));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
-            lp.setMargins(dp(3), 0, dp(3), 0);
+            lp.setMargins(dp(2), 0, dp(2), 0);
             tabRow.addView(navigation[i], lp);
         }
         bottomBar.addView(tabRow, new FrameLayout.LayoutParams(-1, dp(48)));
-        root.addView(bottomBar);
+        bottomBar.bindTabs(navigation);
+
+        FrameLayout.LayoutParams barLayout = new FrameLayout.LayoutParams(-1, dp(64), Gravity.BOTTOM);
+        stage.addView(bottomBar, barLayout);
+
         viewport.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> renderSwitchPosition());
         titleViewport.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> renderSwitchPosition());
         tabRow.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> renderSwitchPosition());
@@ -332,8 +548,7 @@ public final class MainActivity extends Activity {
         });
         root.post(root::requestApplyInsets);
     }
-
-    private View platformTitle(String name, int icon) {
+    private View platformTitle(int index, String name, int icon) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView image = new ImageView(this);
@@ -350,23 +565,27 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams iconLayout = size(28, 28);
         iconLayout.setMarginEnd(dp(8));
         row.addView(image, iconLayout);
-        TextView title = label(name, 18, INK, true);
+        TextView title = label(name, 18, AppTheme.ink(isDark()), true);
         title.setSingleLine(true);
+        titleLabels[index] = title;
         row.addView(title);
         return row;
     }
 
     private void applyKeyboardPadding(int keyboardBottom, int systemBottom) {
         if (viewport == null) return;
-        int footer = bottomNavigation == null || bottomNavigation.getHeight() == 0
-            ? dp(60) : bottomNavigation.getHeight();
-        int padding = Math.max(0, keyboardBottom - systemBottom - footer - dp(1));
+        int padding = Math.max(0, keyboardBottom - systemBottom);
         if (viewport.getPaddingBottom() == padding) return;
-        viewport.setSwipeEnabled(padding == 0 && !SiteDataClearer.isBusy());
-        ((SwipeFrameLayout) bottomNavigation).setSwipeEnabled(padding == 0 && !SiteDataClearer.isBusy());
+        boolean imeOpen = padding > 0;
+        viewport.setSwipeEnabled(!imeOpen && !SiteDataClearer.isBusy());
+        if (bottomBar != null) {
+            bottomBar.setSwipeEnabled(!imeOpen && !SiteDataClearer.isBusy());
+            bottomBar.setVisibility(imeOpen ? View.GONE : View.VISIBLE);
+        }
         viewport.setPadding(0, 0, 0, padding);
-        if (padding > 0 && selected == TAB_PDD) pddPage.post(pddPage::scrollFocusedInput);
-        if (padding > 0 && selected == TAB_TAOBAO && browser != null && !combinedDisplayed) {
+        if (imeOpen && selected == TAB_PDD) pddPage.post(pddPage::scrollFocusedInput);
+        if (imeOpen && selected == TAB_JD) jdPage.post(jdPage::scrollFocusedInput);
+        if (imeOpen && selected == TAB_TAOBAO && browser != null && !combinedDisplayed) {
             final WebView web = browser;
             web.post(() -> {
                 if (isFinishing() || isDestroyed() || browser != web || selected != TAB_TAOBAO) return;
@@ -394,24 +613,28 @@ public final class MainActivity extends Activity {
     }
 
     private void buildTransitionPanel() {
+        boolean dark = isDark();
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(10), dp(12), dp(10), dp(16));
-        content.setBackgroundColor(BG);
+        content.setPadding(dp(10), dp(12), dp(10), dp(76));
+        content.setBackgroundColor(AppTheme.bg(dark));
         content.setClickable(true);
         content.setContentDescription("正在准备身份码和待取包裹");
         for (int i = 0; i < 2; i++) {
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackground(background(Color.WHITE, 16));
+            card.setBackground(background(AppTheme.surface(dark), 16));
             card.setPadding(dp(16), dp(18), dp(16), dp(18));
-            TextView title = label(i == 0 ? "身份码" : "待取包裹", 16, INK, true);
+            transitionCards.add(card);
+            TextView title = label(i == 0 ? "身份码" : "待取包裹", 16, AppTheme.ink(dark), true);
+            transitionTitles.add(title);
             card.addView(title);
             LinearLayout placeholders = new LinearLayout(this);
             placeholders.setOrientation(LinearLayout.VERTICAL);
             placeholders.setGravity(Gravity.CENTER);
             for (int j = 0; j < 3; j++) {
                 ShimmerBlock block = new ShimmerBlock(this, dp(j == 1 ? 12 : 6));
+                block.setDark(dark);
                 shimmerBlocks.add(block);
                 LinearLayout.LayoutParams shape = new LinearLayout.LayoutParams(
                     j == 1 ? -1 : dp(j == 0 ? 112 : 148), dp(j == 1 ? 64 : 12));
@@ -423,9 +646,10 @@ public final class MainActivity extends Activity {
             if (i == 0) section.bottomMargin = dp(14);
             content.addView(card, section);
         }
-        TextView note = label("正在准备取件信息…", 12, MUTED, false);
+        TextView note = label("正在准备取件信息…", 12, AppTheme.muted(dark), false);
         note.setGravity(Gravity.CENTER);
         note.setPadding(0, dp(12), 0, 0);
+        transitionNote = note;
         content.addView(note);
         content.setVisibility(View.GONE);
         transitionPanel = content;
@@ -484,18 +708,20 @@ public final class MainActivity extends Activity {
     }
 
     private void buildErrorPanel() {
+        boolean dark = isDark();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         LinearLayout errorPanel = new LinearLayout(this);
+        errorPanelView = errorPanel;
         errorPanel.setGravity(Gravity.CENTER);
         errorPanel.setOrientation(LinearLayout.VERTICAL);
-        errorPanel.setPadding(dp(28), dp(24), dp(28), dp(24));
-        errorPanel.setBackgroundColor(Color.WHITE);
-        TextView errorTitle = label("", 16, INK, true);
+        errorPanel.setPadding(dp(28), dp(24), dp(28), dp(80));
+        errorPanel.setBackgroundColor(AppTheme.surface(dark));
+        TextView errorTitle = label("", 16, AppTheme.ink(dark), true);
         errorTitle.setTag("error_title");
         errorTitle.setGravity(Gravity.CENTER);
         errorPanel.addView(errorTitle, size(-1, -2));
-        TextView errorDetail = label("", 12, MUTED, false);
+        TextView errorDetail = label("", 12, AppTheme.muted(dark), false);
         errorDetail.setTag("error_detail");
         errorDetail.setPadding(0, dp(16), 0, dp(24));
         errorDetail.setGravity(Gravity.CENTER);
@@ -513,12 +739,15 @@ public final class MainActivity extends Activity {
     private void selectPage(int index) {
         if (SiteDataClearer.isBusy()) return;
         if (popupDialog != null) popupDialog.dismiss();
-        int target = index == TAB_PDD ? TAB_PDD : TAB_TAOBAO;
+        int target = Math.max(0, Math.min(PAGE_COUNT - 1, index));
         preparePreview();
         if (!selectionInitialized) {
             selectionInitialized = true;
             completeSelection(target);
-        } else animateSwitch(target);
+        } else {
+            if (bottomBar != null) bottomBar.setGlassActive(true);
+            animateSwitch(target);
+        }
     }
 
     private void preparePreview() {
@@ -530,7 +759,7 @@ public final class MainActivity extends Activity {
         if (!opened[TAB_PDD]) pddPage.idlePage();
     }
 
-    private SwipeFrameLayout.Listener swipeListener() {
+    private SwipeFrameLayout.Listener pageSwipeListener() {
         return new SwipeFrameLayout.Listener() {
             @Override public boolean isSettling() { return switchAnimation != null; }
             @Override public void onDragStarted() {
@@ -538,6 +767,7 @@ public final class MainActivity extends Activity {
                 preparePreview();
                 pageDragging = true;
                 dragStart = switchMotion.position();
+                if (bottomBar != null) bottomBar.setGlassActive(true);
             }
             @Override public void onDrag(float deltaX) {
                 if (!pageDragging) return;
@@ -553,6 +783,30 @@ public final class MainActivity extends Activity {
         };
     }
 
+    private SwipeFrameLayout.Listener barScrubListener() {
+        return new SwipeFrameLayout.Listener() {
+            @Override public boolean isSettling() { return switchAnimation != null; }
+            @Override public void onDragStarted() {
+                cancelSwitchAnimation();
+                preparePreview();
+                pageDragging = true;
+                dragStart = switchMotion.position();
+                if (bottomBar != null) bottomBar.setGlassActive(true);
+            }
+            @Override public void onDrag(float deltaX) {
+                if (!pageDragging) return;
+                switchMotion.scrub(dragStart, deltaX, bottomBar.slotSpan());
+                renderSwitchPosition();
+            }
+            @Override public void onRelease(boolean cancelled, float velocityX, float distanceX) {
+                if (!pageDragging) return;
+                pageDragging = false;
+                float density = getResources().getDisplayMetrics().density;
+                animateSwitch(switchMotion.target(cancelled, -velocityX / density, -distanceX / density));
+            }
+        };
+    }
+
     private void cancelSwitchAnimation() {
         android.animation.ValueAnimator old = switchAnimation;
         switchAnimation = null;
@@ -563,7 +817,8 @@ public final class MainActivity extends Activity {
         cancelSwitchAnimation();
         pageDragging = false;
         if (switchMotion.position() == target || !android.animation.ValueAnimator.areAnimatorsEnabled()) {
-            completeSelection(target); return;
+            completeSelection(target);
+            return;
         }
         final android.animation.ValueAnimator animation = android.animation.ValueAnimator.ofFloat(switchMotion.position(), target);
         switchAnimation = animation;
@@ -585,39 +840,35 @@ public final class MainActivity extends Activity {
     }
 
     private void renderSwitchPosition() {
-        if (switchMotion == null || viewport == null || tabIndicator == null) return;
+        if (switchMotion == null || viewport == null || bottomBar == null) return;
         float position = switchMotion.position();
-        boolean moving = position > 0f && position < 1f;
+        boolean moving = pageDragging || switchAnimation != null || Math.abs(position - Math.round(position)) > 0.001f;
         float width = viewport.getWidth();
-        View[] pages = {browserFrame, pinduoduoFrame};
+        View[] pages = {browserFrame, pinduoduoFrame, jdPage};
         int titleHeight = titleViewport.getHeight() > 0 ? titleViewport.getHeight() : dp(40);
-        for (int i = 0; i < 2; i++) {
+        int nearest = Math.round(position);
+        for (int i = 0; i < PAGE_COUNT; i++) {
             pages[i].setTranslationX(switchMotion.offset(i, width));
-            // Keep visited WebViews attached and visible offscreen. Toggling
-            // INVISIBLE/onPause discards Chromium's retained content layer and
-            // can leave only the card headings visible during the next swipe.
-            pages[i].setVisibility(opened[i] || (moving && width > 0) || i == Math.round(position) ? View.VISIBLE : View.INVISIBLE);
-            pages[i].setImportantForAccessibility(!moving && i == selected ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            pages[i].setVisibility(opened[i] || (moving && width > 0 && Math.abs(i - position) <= 1.25f) || i == nearest
+                ? View.VISIBLE : View.INVISIBLE);
+            pages[i].setImportantForAccessibility(!moving && i == selected
+                ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             titleRows[i].setTranslationY(switchMotion.offset(i, titleHeight));
             titleRows[i].setAlpha(Math.max(0f, 1f - Math.abs(i - position)));
-            titleRows[i].setImportantForAccessibility(!moving && i == selected ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            float weight = i == 0 ? 1f - position : position;
-            navigation[i].setTextColor(blendColor(MUTED, 0xffbd451f, weight));
+            titleRows[i].setImportantForAccessibility(!moving && i == selected
+                ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         }
-        if (navigation[0].getWidth() > 0) {
-            ViewGroup.LayoutParams shape = tabIndicator.getLayoutParams();
-            if (shape.width != navigation[0].getWidth()) { shape.width = navigation[0].getWidth(); tabIndicator.setLayoutParams(shape); }
-            tabIndicator.setTranslationX(navigation[0].getLeft() + (navigation[1].getLeft() - navigation[0].getLeft()) * position);
+        if (moving) {
+            ++scanGeneration;
+            setScanBrightness(false);
+            scanHandler.removeCallbacks(scanWatch);
+            if (activityResumed) scanHandler.postDelayed(scanWatch, 500);
         }
+        bottomBar.setSwitchPosition(position, moving);
         updateLogoutControls();
     }
-
-    private int blendColor(int from, int to, float amount) {
-        return Color.rgb(Math.round(Color.red(from) + (Color.red(to) - Color.red(from)) * amount),
-            Math.round(Color.green(from) + (Color.green(to) - Color.green(from)) * amount),
-            Math.round(Color.blue(from) + (Color.blue(to) - Color.blue(from)) * amount));
-    }
-
     private void completeSelection(int target) {
         selectionInitialized = true;
         boolean changed = selected != target;
@@ -629,12 +880,14 @@ public final class MainActivity extends Activity {
             navigation[i].setTypeface(Typeface.DEFAULT, active ? Typeface.BOLD : Typeface.NORMAL);
             navigation[i].setSelected(active);
         }
+        if (bottomBar != null) bottomBar.setGlassActive(false);
         renderSwitchPosition();
         if (SiteDataClearer.isBusy()) return;
         if (changed) {
             android.view.inputmethod.InputMethodManager keyboard = (android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
-            keyboard.hideSoftInputFromWindow(viewport.getWindowToken(), 0);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(viewport.getWindowToken(), 0);
         }
+        jdPage.resumePage(selected == TAB_JD);
         try {
             if (selected == TAB_TAOBAO) {
                 pddPage.idlePage();
@@ -642,6 +895,11 @@ public final class MainActivity extends Activity {
                 opened[TAB_TAOBAO] = true;
                 if (browser != null) browser.onResume();
                 if (transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
+            } else if (selected == TAB_JD) {
+                stopShimmer();
+                pddPage.idlePage();
+                jdPage.showPage();
+                opened[TAB_JD] = true;
             } else {
                 stopShimmer();
                 pddPage.showPage();
@@ -651,7 +909,6 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("无法启动网页组件")
                 .setMessage("请在手机系统或应用商店更新 Android System WebView / Chrome 后重试。")
                 .setPositiveButton("知道了", (d, w) -> finish()).show();
-            return;
         }
     }
 
@@ -679,7 +936,11 @@ public final class MainActivity extends Activity {
             officialIdentityScript = readAssetText("official-identity.js");
             taobaoLoginChromeScript = readAssetText("taobao-login-chrome.js");
             combinedGateScript = readAssetText("login-ready.js").trim();
-            combinedMarkup = readAssetText("taobao.html")
+            String rawHtml = readAssetText("taobao.html");
+            if (isDark()) {
+                rawHtml = rawHtml.replace("<html lang=\"zh-CN\">", "<html lang=\"zh-CN\" data-hc-theme=\"dark\">");
+            }
+            combinedMarkup = rawHtml
                 .replace("@@REFRESH_CONTROLLER@@", readAssetText("refresh-controller.js"))
                 .replace("@@OFFICIAL_IDENTITY@@", officialIdentityScript)
                 .replace("@@IDENTITY_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_ENTRY))
@@ -717,12 +978,12 @@ public final class MainActivity extends Activity {
 
     private void applyCombined(WebView view, final int generation) {
         if (combinedMarkup == null || !sameIdentityPage(view.getUrl())) return;
-        // Keep the real official login/verification page visible until it has
-        // produced a usable identity code; recheck inside the replacement too.
         String script = officialIdentityScript + "\n(function(){if(document.getElementById('handycode-merged'))return true;"
             + "if(!(" + combinedGateScript + "))return false;"
             + "document.open();document.write(" + org.json.JSONObject.quote(combinedMarkup)
-            + ");document.close();return true;})()";
+            + ");document.close();"
+            + "if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(" + isDark() + ");"
+            + "return true;})()";
         view.evaluateJavascript(script, result -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
             combinedDisplayed = "true".equals(result);
@@ -743,7 +1004,7 @@ public final class MainActivity extends Activity {
 
     private WebView createBrowser(boolean popup) {
         WebView web = new WebView(this);
-        web.setBackgroundColor(Color.WHITE);
+        web.setBackgroundColor(AppTheme.bg(isDark()));
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -832,7 +1093,13 @@ public final class MainActivity extends Activity {
                     if ("login".equals(phase)) revealOfficialLogin(web);
                     else if ("loading".equals(phase) && !combinedDisplayed) showTransition();
                     else if ("ready".equals(phase)) { showTransition(); renderCombined(web, web.getUrl()); }
-                    else if ("merged".equals(phase)) { combinedDisplayed = true; waitForMergedPresentation(web, combineGeneration); }
+                    else if ("merged".equals(phase)) {
+                        combinedDisplayed = true;
+                        if (isDark()) {
+                            web.evaluateJavascript("if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(true);", null);
+                        }
+                        waitForMergedPresentation(web, combineGeneration);
+                    }
                     return true;
                 }
                 return false;
@@ -853,15 +1120,16 @@ public final class MainActivity extends Activity {
     }
 
     private void openPopup(Message message) {
+        boolean dark = isDark();
         popupDialog = new Dialog(this);
         popupDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(Color.WHITE);
-        TextView title = label("官方网页登录", 18, INK, true);
+        body.setBackgroundColor(AppTheme.surface(dark));
+        TextView title = label("官方网页登录", 18, AppTheme.ink(dark), true);
         title.setPadding(dp(16), dp(16), dp(16), dp(16));
         body.addView(title);
-        TextView trustedDomains = label("淘宝官方网页登录", 12, MUTED, false);
+        TextView trustedDomains = label("淘宝官方网页登录", 12, AppTheme.muted(dark), false);
         trustedDomains.setPadding(dp(16), 0, dp(16), dp(10));
         body.addView(trustedDomains);
         popupView = createBrowser(true);
@@ -1002,6 +1270,8 @@ public final class MainActivity extends Activity {
         if (popupView != null) {
             if (popupView.canGoBack()) popupView.goBack();
             else if (popupDialog != null) popupDialog.dismiss();
+        } else if (selected == TAB_JD && jdPage.goBack()) {
+            return;
         } else if (selected == TAB_PDD && pddPage.goBack()) {
             return;
         } else if (selected == TAB_TAOBAO && browser != null && browser.canGoBack()) {
@@ -1017,30 +1287,42 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onPause() {
         activityResumed = false;
+        ++scanGeneration;
+        scanHandler.removeCallbacks(scanWatch);
+        setScanBrightness(false);
         cancelSwitchAnimation(); pageDragging = false;
         switchMotion.commit(selected); renderSwitchPosition();
         stopShimmer();
         CookieManager.getInstance().flush();
         if (browser != null) browser.onPause();
         pddPage.pausePage();
+        jdPage.pausePage();
         super.onPause();
     }
     @Override protected void onResume() {
         super.onResume();
         activityResumed = true;
+        scanHandler.removeCallbacks(scanWatch);
+        scanHandler.post(scanWatch);
+        applyTheme();
         if (SiteDataClearer.isBusy()) { updateLogoutControls(); return; }
         if (browser != null) browser.onResume();
         pddPage.resumePage(selected == TAB_PDD);
+        jdPage.resumePage(selected == TAB_JD);
         if (!opened[selected]) { completeSelection(selected); return; }
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
     }
     @Override protected void onDestroy() {
+        scanHandler.removeCallbacks(scanWatch);
+        ++scanGeneration;
+        setScanBrightness(false);
         SiteDataClearer.removeObserver(logoutListener);
         cancelSwitchAnimation();
         stopShimmer();
         combineGeneration++;
         popupGeneration++;
         pddPage.destroyPage();
+        jdPage.destroyPage();
         if (popupDialog != null) popupDialog.dismiss();
         if (browser != null) {
             browserFrame.removeView(browser);

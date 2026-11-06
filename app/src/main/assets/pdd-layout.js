@@ -7,8 +7,87 @@
  var reveals = new Set();
  var authenticated = false;
  var bootObserver, bootTimeout;
- var links = new WeakMap(), signatures = {}, started = Date.now(), triedPackage = false, lastPhase;
+ var links = new WeakMap(), savedStyles = new WeakMap(), signatures = {}, started = Date.now(), triedPackage = false, lastPhase, darkOverride = null;
  var props = ['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','line-height','letter-spacing','text-align','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','gap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
+ function isDark() {
+  if (darkOverride !== null) return darkOverride;
+  if (typeof window.__HC_DARK__ === 'boolean') return window.__HC_DARK__;
+  var attr = document.documentElement && document.documentElement.getAttribute('data-hc-theme');
+  if (attr === 'dark') return true;
+  if (attr === 'light') return false;
+  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+ }
+ function parseRgb(val) {
+  if (!val || val === 'transparent' || val === 'none') return null;
+  var m = val.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?/i);
+  if (m) {
+   if (m[4] !== undefined && parseFloat(m[4]) === 0) return null;
+   return [+m[1], +m[2], +m[3]];
+  }
+  var h = val.match(/#([0-9a-f]{3,8})\b/i);
+  if (h) {
+   var s = h[1];
+   if (s.length === 3 || s.length === 4) return [parseInt(s[0]+s[0],16), parseInt(s[1]+s[1],16), parseInt(s[2]+s[2],16)];
+   if (s.length >= 6) return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)];
+  }
+  return null;
+ }
+ function adaptTree(root, dark) {
+  if (!root) return;
+  var walker = document.createTreeWalker(root, 1), node = root;
+  while (node) {
+   var rec = savedStyles.get(node);
+   if (!rec) {
+    rec = {
+     color: node.style.getPropertyValue('color'),
+     bg: node.style.getPropertyValue('background-color'),
+     bgImg: node.style.getPropertyValue('background-image')
+    };
+    savedStyles.set(node, rec);
+   }
+   if (dark) {
+    if (!node.classList || (!node.classList.contains('hc-pdd-barcode') && !node.classList.contains('hc-pdd-qr'))) {
+     var bg = parseRgb(rec.bg);
+     if (bg && bg[0] > 180 && bg[1] > 180 && bg[2] > 180) {
+      node.style.setProperty('background-color', bg[0] < 242 ? 'rgba(255,255,255,0.06)' : 'transparent', 'important');
+     }
+     if (rec.bgImg && /gradient/i.test(rec.bgImg)) {
+      node.style.setProperty('background-image', 'none', 'important');
+     }
+     var fg = parseRgb(rec.color);
+     if (fg) {
+      if (fg[0] < 105 && fg[1] < 105 && fg[2] < 120) node.style.setProperty('color', '#e6eaf2', 'important');
+      else if (fg[0] < 175 && fg[1] < 175 && fg[2] < 185) node.style.setProperty('color', '#9aa4b5', 'important');
+     }
+    }
+   } else {
+    if (rec.color) node.style.setProperty('color', rec.color, 'important'); else node.style.removeProperty('color');
+    if (rec.bg) node.style.setProperty('background-color', rec.bg, 'important'); else node.style.removeProperty('background-color');
+    if (rec.bgImg) node.style.setProperty('background-image', rec.bgImg, 'important'); else node.style.removeProperty('background-image');
+   }
+   node = walker.nextNode();
+  }
+ }
+ function setDark(dark) {
+  darkOverride = !!dark;
+  window.__HC_DARK__ = darkOverride;
+  var bg = darkOverride ? '#0f1218' : '#f5f6f8';
+  if (document.documentElement) {
+   document.documentElement.setAttribute('data-hc-theme', darkOverride ? 'dark' : 'light');
+   document.documentElement.style.setProperty('background', bg, 'important');
+   document.documentElement.style.setProperty('background-color', bg, 'important');
+  }
+  if (document.body) {
+   document.body.style.setProperty('background', bg, 'important');
+   document.body.style.setProperty('background-color', bg, 'important');
+  }
+  ['identity', 'parcels'].forEach(function (part) {
+   var mount = document.getElementById('hc-pdd-' + part);
+   if (mount && mount.firstElementChild) adaptTree(mount.firstElementChild, darkOverride);
+  });
+  return darkOverride;
+ }
+ window.HandyCodeSetDark = setDark;
  function phase(value) { if (lastPhase !== value) { lastPhase = value; console.info('__HANDYCODE_PDD_LAYOUT__:' + value); } }
  function css(node, values) { Object.keys(values).forEach(function (key) { node.style.setProperty(key, values[key], 'important'); }); }
  function placeholder(identity) {
@@ -20,14 +99,11 @@
   var entering = !mount.dataset.ready;
   var before = mount.getBoundingClientRect().height;
   mount.style.height = '';
+  if (isDark()) adaptTree(content, true);
   mount.replaceChildren(content); mount.dataset.ready = 'true';
   var after = mount.getBoundingClientRect().height;
-  // Normal barcode and placeholder have identical reserved space. Animate
-  // exceptional height changes (large fonts, QR mode or a growing parcel list).
   var animate = !document.hidden && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (entering && animate && content.animate) {
-   // Opacity belongs only to a short, cancellable entry effect. Never leave
-   // retained content dependent on a paused CSS animation's backwards fill.
    var reveal = content.animate([{opacity:0},{opacity:1}], {duration:220,easing:'ease-out'});
    reveals.add(reveal);
    reveal.onfinish = function () { reveals.delete(reveal); };
@@ -100,8 +176,6 @@
   if (phone) content.appendChild(phone);
   var image = root.querySelector('.identification-code-img');
   if (image) {
-   // Reuse the official barcode image unchanged. Only the surrounding layout
-   // is horizontal; no barcode data is decoded or regenerated.
    var barcode = document.createElement('img');
    barcode.className = 'hc-pdd-barcode';
    barcode.src = image.currentSrc || image.src;
@@ -163,8 +237,6 @@
     authenticated = true;
     console.info('__HANDYCODE_PDD_AUTH__:signed-in');
    }
-   // Official TabBar normally pre-renders adjacent pages. Initialize the
-   // package pane once if an official update makes it lazy instead.
    if (identity && !parcels && !triedPackage && Date.now() - started > 1500) {
     var tab = sourceTab('取快递');
     if (tab) {
@@ -197,7 +269,6 @@
   var job = {loading:true}, originalHeight = mount.getBoundingClientRect().height;
   refreshes[part] = job; delete failedRefresh[part];
   button.disabled = true; button.textContent = '刷新中';
-  // Keep this card's exact current space while its official request runs.
   if (originalHeight > 0) mount.style.height = originalHeight + 'px';
   delete mount.dataset.ready; delete signatures[part];
   mount.innerHTML = placeholder(part === 'identity');
@@ -217,7 +288,6 @@
   }).then(function () {
    job.loading = false;
    var until = Date.now() + 1500;
-   // Official canvas conversion and React commit can follow the HTTP result.
    function settle() {
     if (refreshes[part] !== job) return;
     var ready = part === 'identity' ? updateIdentity() : updatePending();
@@ -237,8 +307,6 @@
  }
  function back() {
   if (!sourceMode) return false;
-  // Next.js may navigate official forms without replacing the document.
-  // Return to the actual package route before showing the combined cards.
   if (location.pathname !== '/mdkd/package') { history.back(); return true; }
   workflow(false); return true;
  }
@@ -247,8 +315,6 @@
   while (node && node !== shell && !(original = links.get(node))) node = node.parentNode;
   if (!original || !original.isConnected) return;
   event.preventDefault();
-  // Switch-code controls update in place. Other official actions temporarily
-  // reveal the original page so its forms and dialogs remain usable.
   if (!original.closest('.identification-code-tips')) workflow(true);
   original.click(); queue();
  }
@@ -256,8 +322,6 @@
   if (shell) return;
   source = document.getElementById('__next');
   if (!source || !document.body) {
-   // The injected bundle can execute before Next's root is inserted. Keep
-   // waiting for that document's root instead of permanently missing boot.
    if (!bootObserver) {
     bootObserver = new MutationObserver(boot);
     bootObserver.observe(document.documentElement || document, {subtree:true,childList:true});
@@ -270,12 +334,13 @@
   source.setAttribute('data-hc-pdd-source', '');
   var style = document.createElement('style');
   style.textContent = `
-html,body{height:auto!important;min-height:100%!important;overflow-x:hidden!important;overflow-y:auto!important}
-body{margin:0!important;padding:12px 10px 24px!important;background:#f5f6f8!important}
+html{height:auto!important;min-height:100vh!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important}
+body{display:block!important;height:auto!important;min-height:100vh!important;margin:0!important;padding:12px 10px 96px!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important;transition:background-color .2s}
+html:not(.hc-pdd-source-mode) body>:not(#hc-pdd-shell):not(#hc-pdd-back):not([data-hc-pdd-source]):not(script):not(style){display:none!important}
 [data-hc-pdd-source]{position:fixed!important;left:-100000px!important;top:0!important;width:100vw!important;height:100vh!important;transform:translateZ(0)!important;pointer-events:none!important}
 #hc-pdd-shell{color:#242b37;font:14px/1.5 system-ui,sans-serif;overflow:visible;touch-action:pan-y}
 #hc-pdd-shell *{box-sizing:border-box}
-.hc-pdd-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff;overflow:visible}
+.hc-pdd-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff;overflow:visible;transition:background-color .2s,border-color .2s}
 .hc-pdd-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #f0f2f5}
 .hc-pdd-heading h2{margin:0;font-size:16px;font-weight:650}
 .hc-pdd-heading button{border:0;background:none;color:#d4542d;padding:5px 0;font:12px system-ui,sans-serif}
@@ -301,6 +366,28 @@ body{margin:0!important;padding:12px 10px 24px!important;background:#f5f6f8!impo
 .hc-pdd-wait{padding:20px 8px;color:#89919d;text-align:center;font-size:12px}
 #hc-pdd-back{position:fixed;left:0;right:0;top:0;height:44px;z-index:2147483647;background:#fff;border-bottom:1px solid #e9ecf0;display:flex;align-items:center;padding:0 14px}
 #hc-pdd-back button{background:none;border:0;color:#d4542d;font:14px system-ui,sans-serif}
+html[data-hc-theme="dark"],html[data-hc-theme="dark"] body,html[data-hc-theme="dark"] #hc-pdd-shell,html[data-hc-theme="dark"].hc-pdd-source-mode [data-hc-pdd-source],html[data-hc-theme="dark"].hc-pdd-source-mode [data-hc-pdd-source] [class*="container"]{background:#0f1218!important;background-color:#0f1218!important;color-scheme:dark}
+html[data-hc-theme="dark"] #hc-pdd-shell{color:#e6eaf2}
+html[data-hc-theme="dark"] .hc-pdd-card{background:#181c24;border-color:#262c36}
+html[data-hc-theme="dark"] .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
+html[data-hc-theme="dark"] .hc-pdd-heading button,html[data-hc-theme="dark"] #hc-pdd-back button{color:#ff855e}
+html[data-hc-theme="dark"] .hc-pdd-barcode,html[data-hc-theme="dark"] .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
+html[data-hc-theme="dark"] .hc-pdd-placeholder i{background:#232936}
+html[data-hc-theme="dark"] .hc-pdd-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+html[data-hc-theme="dark"] .hc-pdd-wait,html[data-hc-theme="dark"] .hc-pdd-warning,html[data-hc-theme="dark"] .hc-pdd-tips{color:#8e98aa!important}
+html[data-hc-theme="dark"] #hc-pdd-back{background:#181c24;border-bottom-color:#262c36}
+@media(prefers-color-scheme:dark){
+html:not([data-hc-theme="light"]),html:not([data-hc-theme="light"]) body,html:not([data-hc-theme="light"]) #hc-pdd-shell,html:not([data-hc-theme="light"]).hc-pdd-source-mode [data-hc-pdd-source],html:not([data-hc-theme="light"]).hc-pdd-source-mode [data-hc-pdd-source] [class*="container"]{background:#0f1218!important;background-color:#0f1218!important;color-scheme:dark}
+html:not([data-hc-theme="light"]) #hc-pdd-shell{color:#e6eaf2}
+html:not([data-hc-theme="light"]) .hc-pdd-card{background:#181c24;border-color:#262c36}
+html:not([data-hc-theme="light"]) .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
+html:not([data-hc-theme="light"]) .hc-pdd-heading button,html:not([data-hc-theme="light"]) #hc-pdd-back button{color:#ff855e}
+html:not([data-hc-theme="light"]) .hc-pdd-barcode,html:not([data-hc-theme="light"]) .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
+html:not([data-hc-theme="light"]) .hc-pdd-placeholder i{background:#232936}
+html:not([data-hc-theme="light"]) .hc-pdd-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+html:not([data-hc-theme="light"]) .hc-pdd-wait,html:not([data-hc-theme="light"]) .hc-pdd-warning,html:not([data-hc-theme="light"]) .hc-pdd-tips{color:#8e98aa!important}
+html:not([data-hc-theme="light"]) #hc-pdd-back{background:#181c24;border-bottom-color:#262c36}
+}
 #hc-pdd-shell[hidden],#hc-pdd-back[hidden]{display:none!important}
 html.hc-pdd-source-mode,html.hc-pdd-source-mode body{overflow:hidden!important}
 .hc-pdd-source-mode [data-hc-pdd-source]{left:0!important;top:44px!important;height:calc(100vh - 44px)!important;pointer-events:auto!important}
@@ -335,8 +422,9 @@ html.hc-pdd-source-mode,html.hc-pdd-source-mode body{overflow:hidden!important}
    else queue();
   });
   window.addEventListener('pagehide', function () { observer.disconnect(); clearInterval(timer); });
+  setDark(isDark());
   phase('loading'); update();
  }
- window.HandyPddLayout = {update:update, back:back};
+ window.HandyPddLayout = {update:update, back:back, setDark:setDark};
  if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot, {once:true});
 })();

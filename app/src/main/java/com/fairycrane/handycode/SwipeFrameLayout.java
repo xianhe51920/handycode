@@ -7,7 +7,7 @@ import android.view.VelocityTracker;
 import android.widget.FrameLayout;
 
 /** Intercepts horizontal intent only; vertical scrolling stays in WebView. */
-final class SwipeFrameLayout extends FrameLayout {
+class SwipeFrameLayout extends FrameLayout {
     interface Listener {
         boolean isSettling();
         void onDragStarted();

@@ -72,6 +72,8 @@ Invoke-Checked $javac @('-encoding','UTF-8','--release','8','-d',$testClasses,
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\SwitchMotion.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\LogoutSites.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\SiteClearQueue.java'),
+    (Join-Path $sourceRoot 'java\com\fairycrane\handycode\JdUrlPolicy.java'),
+    (Join-Path $projectRoot 'tests\JdUrlPolicyTest.java'),
     (Join-Path $projectRoot 'tests\SiteClearQueueTest.java'),
     (Join-Path $projectRoot 'tests\UrlPolicyTest.java'),
     (Join-Path $projectRoot 'tests\PddUrlPolicyTest.java'),
@@ -82,6 +84,9 @@ Invoke-Checked $java @('-cp',$testClasses,'PddUrlPolicyTest')
 Invoke-Checked $java @('-cp',$testClasses,'PddBundleAdapterTest')
 Invoke-Checked $java @('-cp',$testClasses,'SwitchMotionTest')
 Invoke-Checked $java @('-cp',$testClasses,'SiteClearQueueTest')
+Invoke-Checked $java @('-cp',$testClasses,'JdUrlPolicyTest')
+Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\jd-orders.test.mjs'))
+Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\scan-code-visibility.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-same-origin.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-section-refresh.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-login-client.test.mjs'))
