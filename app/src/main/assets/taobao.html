@@ -10,18 +10,19 @@
 .hc-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff}
 .hc-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #f0f2f5}
 .hc-heading h2{margin:0;font-size:16px;font-weight:650}.hc-actions{display:flex;gap:12px;flex-shrink:0}
-.hc-actions button,.hc-actions a{padding:5px 0;color:#d4542d;background:none;border:0;font:inherit;font-size:12px;text-decoration:none}
+.hc-actions button,.hc-actions a{padding:5px 0;color:#536071;background:none;border:0;font:inherit;font-size:12px;text-decoration:none}
 .hc-actions button:disabled{color:#8a929f}
-.hc-content{padding:10px;overflow:visible;min-width:0}.hc-loading{padding:28px 8px;color:#89919d;text-align:center;font-size:12px}
-.hc-content > .hc-section-enter{animation:hc-section-reveal .22s ease-out both}
-.hc-section-placeholder{height:100%;min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:space-around;gap:16px;padding:14px 8px;overflow:hidden}
-.hc-section-placeholder i{display:block;position:relative;flex-shrink:0;width:68%;height:14px;border-radius:7px;background:#edf0f4;overflow:hidden}
+.hc-content{position:relative;padding:10px;overflow:visible;min-width:0}.hc-loading{padding:28px 8px;color:#89919d;text-align:center;font-size:12px}
+.hc-actions [data-phone-manage]:not([hidden]) + button{border-left:1px solid #e1e5eb;padding-left:8px}
+.hc-section-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:8px;overflow:hidden}
+.hc-section-placeholder i{display:block;position:relative;width:68%;height:14px;border-radius:7px;background:#edf0f4;overflow:hidden}
 .hc-section-placeholder i:nth-child(2){width:100%;height:72px}
 .hc-section-placeholder i::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);transform:translateX(-100%);animation:hc-section-shimmer 1.4s linear infinite;will-change:transform}
+.hc-section-placeholder[data-part="identity"] i:first-child{width:32%;height:16px}
+.hc-section-placeholder[data-part="identity"] i:last-child{display:none}
 .hc-section-placeholder[data-part="parcels"] i:nth-child(2){width:50%;height:44px}
 @keyframes hc-section-shimmer{to{transform:translateX(100%)}}
-@keyframes hc-section-reveal{from{opacity:0}to{opacity:1}}
-@media(prefers-reduced-motion:reduce){.hc-section-placeholder i::after,.hc-content > .hc-section-enter{animation:none}}
+@media(prefers-reduced-motion:reduce){.hc-section-placeholder i::after{animation:none}}
 /* Only extracted DOM is visible. Source documents never receive touches. */
 .hc-source{position:fixed;left:-100000px;top:0;width:calc(100vw - 42px);height:1000px;border:0;pointer-events:none}
 </style>
@@ -32,21 +33,25 @@
 <div class="hc-content" id="identity-content"><div class="hc-loading">正在加载官方身份码…</div></div>
 </section>
 <section class="hc-card">
-<div class="hc-heading"><h2>待取包裹</h2><div class="hc-actions"><button data-refresh="parcels" type="button">刷新</button></div></div>
+<div class="hc-heading"><h2>待取包裹</h2><div class="hc-actions"><button data-phone-manage type="button" hidden>添加手机号</button><button data-refresh="parcels" type="button">刷新</button></div></div>
 <div class="hc-content" id="parcels-content"><div class="hc-loading">正在加载官方包裹列表…</div></div>
 </section>
 <iframe class="hc-source" id="identity-source" src="@@IDENTITY_URL@@" title="身份码数据来源" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
 <iframe class="hc-source" id="parcels-source" src="@@PARCELS_URL@@" title="包裹列表数据来源" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
 <script>@@REFRESH_CONTROLLER@@</script>
 <script>@@OFFICIAL_IDENTITY@@</script>
+<script>@@PICKUP_MOTION@@</script>
 <script>
 (function(){
 'use strict';
 var sources={},links=new WeakMap(),touching=false,lastTouch=0;
+var phoneManage=document.querySelector('[data-phone-manage]'),officialPhoneManage;
+phoneManage.addEventListener('click',function(){if(officialPhoneManage&&officialPhoneManage.isConnected)officialPhoneManage.click()});
+HandyPickupMotion.bindZoom(document.getElementById('identity-content'),'[data-hc-barcode]');
 function showSectionLoading(state){
- state.refreshPresentation=true;
  var height=state.mount.getBoundingClientRect().height;
- if(!state.mount.dataset.ready)height=Math.max(height,state.type==='identity'?220:160);
+ if(!state.mount.dataset.ready)height=Math.max(height,state.type==='identity'?140:160);
+ HandyPickupMotion.reset(state.mount);
  if(height>0)state.mount.style.height=height+'px';
  state.mount.setAttribute('aria-busy','true');
  delete state.mount.dataset.ready;
@@ -56,24 +61,15 @@ function showSectionLoading(state){
  placeholder.innerHTML='<i></i><i></i><i></i>';
  state.mount.replaceChildren(placeholder);
 }
-function presentSection(state,fresh){
- var before=state.mount.getBoundingClientRect().height;
- state.mount.style.height='';
- if(state.refreshPresentation)fresh.classList.add('hc-section-enter');
- state.mount.replaceChildren(fresh);state.mount.dataset.ready='true';
- state.refreshPresentation=false;
- var after=state.mount.getBoundingClientRect().height;
- if(before>0&&Math.abs(after-before)>1&&state.mount.animate&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches){
-  state.mount.animate([{height:before+'px'},{height:after+'px'}],{duration:240,easing:'cubic-bezier(.2,.7,.2,1)'});
- }
-}
 document.addEventListener('touchstart',function(){touching=true},{passive:true});
 function endTouch(){touching=false;lastTouch=Date.now()}
 document.addEventListener('touchend',endTouch,{passive:true});
 document.addEventListener('touchcancel',endTouch,{passive:true});
 var props=['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','font-style','line-height','letter-spacing','text-align','text-decoration','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','vertical-align','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','flex-basis','gap','grid-template-columns','grid-template-rows','object-fit','overflow-wrap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
+var parcelProps=['overflow-x','overflow-y','text-overflow','-webkit-line-clamp','-webkit-box-orient','grid-column','grid-row','column-gap','row-gap'];
+var responsiveSize=/^(?:width|height|min-width|min-height|max-width|max-height|flex-basis|grid-template-columns|grid-template-rows)$/;
 
-function clone(source,doc,budget,skip){
+function clone(source,doc,budget,skip,parcel){
  if(--budget.count<0)throw new Error('too-large');
  if(source===skip||typeof skip==='function'&&skip(source))return null;
  if(source.nodeType===3)return document.createTextNode(source.nodeValue);
@@ -90,19 +86,34 @@ function clone(source,doc,budget,skip){
   if(copy.namespaceURI!=='http://www.w3.org/2000/svg'){copy.removeAttribute('id');copy.removeAttribute('class')}
   if(copy.tagName==='IMG'&&source.currentSrc)copy.src=source.currentSrc;
   if(copy.tagName==='A'){copy.removeAttribute('href');copy.removeAttribute('target')}
-  Array.from(source.childNodes).forEach(function(child){var result=clone(child,doc,budget,skip);if(result)copy.appendChild(result)});
+  Array.from(source.childNodes).forEach(function(child){var result=clone(child,doc,budget,skip,parcel);if(result)copy.appendChild(result)});
  }
- props.forEach(function(name){copy.style.setProperty(name,css.getPropertyValue(name),'important')});
- copy.style.setProperty('box-sizing','border-box','important');
- copy.style.setProperty('max-width','100%','important');
- // Strip every inner scrolling surface from the projected DOM.
- copy.style.setProperty('overflow','visible','important');
+ // A parcel's auto and percentage sizes must resolve against its new parent.
+ var sizing=parcel&&source.computedStyleMap&&source.computedStyleMap();
+ (parcel?props.concat(parcelProps):props).forEach(function(name){
+  var original=sizing&&responsiveSize.test(name)&&sizing.get(name);
+  copy.style.setProperty(name,original?String(original):css.getPropertyValue(name),'important');
+ });
+ // The official code font is scoped to the source document. Use the same
+ // system stack as the Pinduoduo card in the projected page.
+ if(parcel&&css.getPropertyValue('font-family')==='AlibabaSans102-Bd'){
+  copy.style.setProperty('font-family','system-ui, sans-serif','important');
+ }
+ if(parcel&&css.color==='rgb(124, 136, 156)'){
+  copy.style.setProperty('color','#5f6878','important');
+ }
+ if(!parcel){
+  copy.style.setProperty('box-sizing','border-box','important');
+  copy.style.setProperty('max-width','100%','important');
+  copy.style.setProperty('overflow','visible','important');
+ }
  copy.style.setProperty('touch-action','pan-y','important');
  if(/^(fixed|sticky)$/.test(css.position)||/auto|scroll/.test(css.overflowY)){
   copy.style.setProperty('position','static','important');
   copy.style.setProperty('height','auto','important');
   copy.style.setProperty('max-height','none','important');
   copy.style.setProperty('transform','none','important');
+  copy.style.setProperty('overflow','visible','important');
  }
  links.set(copy,source);
  return copy;
@@ -133,6 +144,19 @@ function statusTabs(doc){
  }
  return null;
 }
+function hideParcelExtra(node,tabs){
+ if(node===tabs)return true;
+ if(node.nodeType!==1)return false;
+ var label=(node.textContent||'').replace(/\s/g,'');
+ if(label==='添加包裹'||label==='查看地址'||label==='求助')return true;
+ if(label==='看包裹'&&node.matches('[class*="holder--"] > [class*="thumbnail--"]'))return true;
+ if(label==='好友代取'&&node.matches('[class*="operation--"],[class*="actions--"],[class*="btn--"]'))return true;
+ if(node.matches('[class*="position--"]')&&label.includes('能看包裹图'))return true;
+ // Remove the whole promotion, including its close icon and timeline marker.
+ return node.matches('[class*="container--"]')&&Array.from(node.children).some(function(child){
+  return child.matches('[class*="package--"]')&&child.textContent.replace(/\s/g,'').startsWith('还有包裹未显示');
+ });
+}
 function rebindProjection(visible,fresh){
  if(!visible||!fresh)return;
  var original=links.get(fresh);
@@ -148,6 +172,9 @@ function project(state){
   if(doc===state.staleDocument)return;
   bindDocument(state,doc);
   if(state.type==='identity'){
+   var manage=textElement(doc,'号码管理');
+   officialPhoneManage=manage&&manage.closest('a[href]');
+   phoneManage.hidden=!officialPhoneManage;
    var barcode=doc.querySelector('img[class*="width-origin--"],img[class*="width-rotate--"]');
    if(!barcode||!barcode.complete||barcode.naturalWidth===0){HandyCodeOfficialIdentity.recover(doc,Date.now());return;}
   }
@@ -160,29 +187,33 @@ function project(state){
   var signature=root.outerHTML;
   if(signature===state.signature&&state.mount.dataset.ready){state.controller.finish();return}
   var tabs=state.type==='parcels'?statusTabs(doc):null;
-  var skip=state.type==='parcels'?function(node){
-   return node===tabs||node.nodeType===1&&(node.textContent||'').replace(/\s/g,'')==='添加包裹';
-  }:null;
-  var fresh=clone(root,doc,{count:6000},skip);
+  var parcel=state.type==='parcels';
+  var skip=parcel?function(node){
+   return hideParcelExtra(node,tabs);
+  }:function(node){
+   return node.nodeType===1&&node.matches('.have-authenticated,div[class^="code--"],div[class*=" code--"]');
+  };
+  var fresh=clone(root,doc,{count:6000},skip,parcel);
   if(!fresh)return;
   if(state.type==='parcels'&&!fresh.textContent.replace(/\s/g,'').replace(/加载中[.。…]*/g,''))return;
   [['position','static'],['width','100%'],['height','auto'],['min-height','0'],['max-height','none'],['margin','0'],['transform','none']].forEach(function(p){fresh.style.setProperty(p[0],p[1],'important')});
+  if(state.type==='parcels'){
+   if(fresh.style.display==='block')fresh.style.setProperty('display','flow-root','important');
+   fresh.style.setProperty('box-sizing','border-box','important');
+  }
   if(state.type==='identity'){
-   [['display','flex'],['flex-direction','column'],['align-items','center'],['justify-content','center'],['text-align','center'],['padding','16px 8px'],['gap','12px']].forEach(function(p){fresh.style.setProperty(p[0],p[1],'important')});
+   [['display','flex'],['flex-direction','column'],['align-items','center'],['justify-content','center'],['text-align','center'],['padding','6px 8px'],['gap','7px']].forEach(function(p){fresh.style.setProperty(p[0],p[1],'important')});
    Array.from(fresh.children).forEach(function(child){
     [['position','static'],['transform','none'],['left','auto'],['right','auto'],['margin','0'],['text-align','center'],['align-self','center']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
     if(child.tagName!=='IMG'&&child.tagName!=='CANVAS'){
      [['width','100%'],['height','auto'],['min-height','0'],['padding','0']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
-     var original=links.get(child);
-     if(original&&/have-authenticated/.test(original.className||'')){
-      [['display','inline-flex'],['width','auto'],['align-items','center'],['justify-content','center']].forEach(function(p){child.style.setProperty(p[0],p[1],'important')});
-     }
     }
    });
    Array.from(fresh.querySelectorAll('img')).forEach(function(image){
     var original=links.get(image);
     if(original&&/width-origin--|width-rotate--/.test(original.className||'')){
-     [['display','block'],['width','100%'],['height','82px'],['object-fit','fill'],['transform','none'],['margin','8px 0']].forEach(function(p){image.style.setProperty(p[0],p[1],'important')});
+     [['display','block'],['width','100%'],['height','auto'],['max-height','96px'],['object-fit','contain'],['transform','none'],['margin','0']].forEach(function(p){image.style.setProperty(p[0],p[1],'important')});
+     image.setAttribute('data-hc-barcode','');
     }
    });
   }
@@ -192,7 +223,7 @@ function project(state){
    // events) must not restart a fade or replace an identical image. Rebind
    // live official handlers if React replaced the original source nodes.
    rebindProjection(state.mount.firstElementChild,fresh);
-  }else presentSection(state,fresh);
+  }else HandyPickupMotion.replace(state.mount,fresh);
   state.visibleSignature=visibleSignature;
   state.signature=signature;
   state.controller.finish();
@@ -224,7 +255,7 @@ function bindDocument(state,doc){
    document.querySelectorAll('[data-refresh="'+type+'"]').forEach(function(button){button.disabled=busy;button.textContent=busy?'刷新中':'刷新'});
    if(busy)showSectionLoading(state);else state.mount.setAttribute('aria-busy','false');
   },
-  timeout:function(){delete state.mount.dataset.ready;state.signature=null;state.mount.innerHTML='<div class="hc-loading">官方内容暂未更新成功，请稍后刷新。</div>'}
+  timeout:function(){delete state.mount.dataset.ready;state.signature=null;state.mount.style.height='';state.mount.innerHTML='<div class="hc-loading">官方内容暂未更新成功，请稍后刷新。</div>'}
  });
  state.frame.addEventListener('load',function(){
   state.loaded=true;
@@ -234,6 +265,7 @@ function bindDocument(state,doc){
   queue(state);
  });
  state.mount.addEventListener('click',function(event){
+  if(state.type==='identity'&&!event.target.closest('a,button'))return;
   var node=event.target,original;
   while(node&&node!==state.mount&&!(original=links.get(node)))node=node.parentNode;
   if(!original||!original.isConnected)return;
@@ -254,6 +286,7 @@ document.querySelectorAll('[data-refresh]').forEach(function(button){
  });
 });
 window.HandyCodeRefresh=function(){Object.keys(sources).forEach(function(type){sources[type].controller.refresh()});return true};
+window.HandyCodeRefreshParcels=function(){sources.parcels.controller.refresh()};
 document.addEventListener('visibilitychange',function(){if(!document.hidden)Object.keys(sources).forEach(function(type){queue(sources[type])})});
 window.addEventListener('pagehide',function(){Object.keys(sources).forEach(function(type){sources[type].controller.dispose()})});
 })();

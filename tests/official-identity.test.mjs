@@ -28,10 +28,13 @@ f.removeFrame();assert.equal(f.api.recover(f.doc,31000),'waiting');assert.equal(
 f=fixture({frameUrl:'about:blank'});assert.equal(f.api.recover(f.doc,2000),'login','A full-size login iframe still being initialized must not be refreshed');
 f=fixture({frameUrl:'https://login.m.taobao.com/login.htm',frameHidden:true});assert.equal(f.api.recover(f.doc,0),'waiting');assert.equal(f.api.recover(f.doc,1300),'triggered','A closed login overlay must not block output forever');
 f=fixture({frameUrl:'https://login.m.taobao.com/login.htm',frameOffscreen:true});assert.equal(f.api.recover(f.doc,0),'waiting','Off-screen source documents are not a visible login modal');
+f=fixture({rootPresent:false});assert.equal(f.api.phase(f.doc),'loading','Initial page has no login or identity evidence');
+f=fixture({inputType:'tel'});assert.equal(f.api.phase(f.doc),'login');f.removeInput();
+assert.equal(f.api.phase(f.doc),'identity-loading','Identity loading can be reported before a code is available');
 f=fixture();const phases=[],jobs=[],observers=[];
 f.doc.documentElement={};f.context.console={info:value=>phases.push(value)};f.context.setTimeout=fn=>{jobs.push(fn);};
 f.context.MutationObserver=class {constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
-f.api.watch(f.doc);assert.deepEqual(phases,['__HANDYCODE_PHASE__:loading']);
+f.api.watch(f.doc);assert.deepEqual(phases,['__HANDYCODE_PHASE__:identity-loading']);
 observers[0].callback();observers[0].callback();assert.equal(jobs.length,1,'Batch repeated DOM changes into one presentation notification');jobs.shift()();assert.equal(phases.length,1,'Do not reopen the same loading state repeatedly');
 f.authenticated();observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:ready');
 f.doc.getElementById=()=>({});observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:merged');assert.equal(observers[0].disconnected,true,'Stop observing presentation after the merged page is installed');

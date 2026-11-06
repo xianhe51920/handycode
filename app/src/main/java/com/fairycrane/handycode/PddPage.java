@@ -34,7 +34,7 @@ final class PddPage extends LinearLayout {
     private final TextView status;
     private final LinearLayout actions;
     private final FrameLayout content;
-    private final PddLoadingView cover;
+    private final PickupLoadingView cover;
     private long navigation;
     private boolean packageNavigation;
     private boolean pageCommitted;
@@ -50,6 +50,7 @@ final class PddPage extends LinearLayout {
     private volatile boolean bundleAdjusted;
     private boolean sawLogin, returnedAfterLogin;
     private boolean layoutWorkflow;
+    private boolean projectionActive;
 
     PddPage(Context context, Runnable openClient, java.util.function.Consumer<Boolean> sessionChanged) {
         super(context);
@@ -74,11 +75,12 @@ final class PddPage extends LinearLayout {
         addView(actions);
         actions.setVisibility(View.GONE);
         content = new FrameLayout(context);
-        cover = new PddLoadingView(context);
+        cover = new PickupLoadingView(context, true);
         content.addView(cover, new FrameLayout.LayoutParams(-1, -1));
         addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         try {
-            compatibilityScript = readScript("pdd-same-origin.js") + "\n" + readScript("pdd-section-refresh.js") + "\n" + readScript("pdd-layout.js");
+            compatibilityScript = readScript("pdd-same-origin.js") + "\n" + readScript("pdd-section-refresh.js")
+                + "\n" + readScript("pickup-motion.js") + "\n" + readScript("pdd-layout.js");
             loginClientScript = readScript("pdd-login-client.js");
         } catch (java.io.IOException unavailable) {
             actions.setVisibility(View.VISIBLE);
@@ -112,7 +114,8 @@ final class PddPage extends LinearLayout {
         stopPresentationWatch();
         coverFading = false;
         cover.animate().cancel();
-        cover.stopMorph();
+        cover.setOpeningPhoneManagement(false);
+        cover.resetGeometry();
         cover.setAlpha(1f);
         cover.setVisibility(View.VISIBLE);
         cover.invalidate();
@@ -129,7 +132,7 @@ final class PddPage extends LinearLayout {
                 coverFading = true;
                 stopPresentationWatch();
                 if (packageNavigation) cover.morphTo(coverWidth, coverIdentity, coverParcels, coverHeading);
-                cover.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+                cover.animate().alpha(0f).setDuration(PickupLoadingView.REVEAL_DURATION).withEndAction(() -> {
                     if (!destroyed && navigation == expected) cover.setVisibility(View.GONE);
                 }).start();
             }
@@ -186,6 +189,7 @@ final class PddPage extends LinearLayout {
     void showPage() {
         if (destroyed || compatibilityScript == null) return;
         cover.setAnimating(true);
+        setProjectionActive(true);
         if (web != null) { web.onResume(); return; }
         web = new WebView(getContext());
         web.setBackgroundColor(Color.WHITE);
@@ -241,6 +245,9 @@ final class PddPage extends LinearLayout {
                 pageCommitted = false;
                 if (UrlPolicy.isPddLoginPage(url)) sessionChanged.accept(false);
                 showCover();
+                if (UrlPolicy.isPddAllowed(url) && "/mdkd/cellPhoneList".equals(android.net.Uri.parse(url).getPath())) {
+                    cover.setOpeningPhoneManagement(true);
+                }
                 layoutWorkflow = false;
                 boolean packagePage = isPackageUrl(url);
                 packageNavigation = packagePage;
@@ -330,6 +337,7 @@ final class PddPage extends LinearLayout {
                 packageNavigation = true;
                 String phase = value.substring("__HANDYCODE_PDD_LAYOUT__:".length());
                 layoutWorkflow = "source".equals(phase);
+                if ("loading".equals(phase) && !projectionActive) applyProjectionActive();
                 if ("loading".equals(phase) || "cards".equals(phase) || layoutWorkflow) {
                     actions.setVisibility(View.GONE);
                     if (cover.getVisibility() == View.VISIBLE) revealAssembledPage(web);
@@ -420,12 +428,28 @@ final class PddPage extends LinearLayout {
         if (web != null) web.evaluateJavascript("(function(){var e=document.activeElement;if(e&&e.matches('input,textarea'))e.scrollIntoView({block:'center'});})()", null);
     }
 
-    // Tab switches only stop the native loading highlight. Pause Chromium only
-    // when the Activity itself leaves the foreground, preserving its live DOM
-    // and compositor for an immediate, populated swipe preview on return.
-    void idlePage() { cover.setAnimating(false); }
+    private void setProjectionActive(boolean active) {
+        if (projectionActive == active) return;
+        projectionActive = active;
+        applyProjectionActive();
+    }
+
+    private void applyProjectionActive() {
+        if (web != null && isPackageUrl(web.getUrl())) {
+            web.evaluateJavascript("window.HandyPddLayout && window.HandyPddLayout.setActive("
+                + projectionActive + ")", null);
+        }
+    }
+
+    // Stop rebuilding cards on tab switches, while retaining the live WebView
+    // and its compositor for an immediate, populated swipe preview.
+    void idlePage() { cover.setAnimating(false); setProjectionActive(false); }
     void pausePage() { idlePage(); if (web != null) web.onPause(); }
-    void resumePage(boolean active) { cover.setAnimating(active); if (web != null) web.onResume(); }
+    void resumePage(boolean active) {
+        cover.setAnimating(active);
+        if (web != null) web.onResume();
+        setProjectionActive(active);
+    }
     void resetSessionView() {
         navigation++;
         sessionChanged.accept(false);

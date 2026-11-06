@@ -84,7 +84,8 @@
     function phase(doc) {
         if (doc.getElementById('handycode-merged')) return 'merged';
         if (loginVisible(doc)) return 'login';
-        return ready(doc) ? 'ready' : 'loading';
+        if (ready(doc)) return 'ready';
+        return doc.querySelector('[class*="identity--"]') ? 'identity-loading' : 'loading';
     }
     var watchers = new WeakMap();
     function watch(doc) {

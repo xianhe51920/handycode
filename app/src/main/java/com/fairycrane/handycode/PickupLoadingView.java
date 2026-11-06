@@ -13,20 +13,33 @@ import android.os.SystemClock;
 import android.view.View;
 
 /** Opaque first-frame cover. Never captures or retains the official page. */
-final class PddLoadingView extends View {
+final class PickupLoadingView extends View {
+    static final int REVEAL_DURATION = 260;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private float scale, identityHeight = 310, parcelsHeight = 140, headingHeight = 46;
+    private final boolean pdd;
+    private float scale, identityHeight, parcelsHeight, headingHeight;
     private ValueAnimator morph;
     private boolean animating;
+    private boolean openingPhoneManagement;
     private long animationStarted;
 
-    PddLoadingView(Context context) {
+    PickupLoadingView(Context context, boolean pdd) {
         super(context);
-        scale = getResources().getDisplayMetrics().density;
+        this.pdd = pdd;
+        resetGeometry();
         setBackgroundColor(0xfff5f6f8);
         setClickable(true);
-        setContentDescription("正在加载拼多多取件信息");
+        setContentDescription("正在准备身份码和待取包裹");
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+    }
+
+    void resetGeometry() {
+        stopMorph();
+        scale = getResources().getDisplayMetrics().density;
+        identityHeight = pdd ? 174 : 140;
+        parcelsHeight = pdd ? 140 : 160;
+        headingHeight = 53;
+        invalidate();
     }
 
     void morphTo(float cssWidth, float identity, float parcels, float heading) {
@@ -40,7 +53,7 @@ final class PddLoadingView extends View {
         // Match its non-sensitive geometry while fading, rather than snapping
         // between native density and CSS pixels. Retain only these dimensions.
         morph = ValueAnimator.ofFloat(0f, 1f);
-        morph.setDuration(180);
+        morph.setDuration(REVEAL_DURATION);
         morph.addUpdateListener(animation -> {
             float t = (Float)animation.getAnimatedValue();
             scale = oldScale + (nextScale - oldScale) * t;
@@ -54,7 +67,14 @@ final class PddLoadingView extends View {
 
     void stopMorph() { if (morph != null) morph.cancel(); }
 
+    void setOpeningPhoneManagement(boolean opening) {
+        openingPhoneManagement = opening;
+        setContentDescription(opening ? "正在打开号码管理" : "正在准备身份码和待取包裹");
+        invalidate();
+    }
+
     void setAnimating(boolean value) {
+        value = value && ValueAnimator.areAnimatorsEnabled();
         if (animating == value) return;
         animating = value;
         animationStarted = SystemClock.uptimeMillis();
@@ -78,29 +98,36 @@ final class PddLoadingView extends View {
     }
 
     private void card(Canvas canvas, float y, float width, float bodyHeight, String title, boolean identity) {
-        rect(canvas, 10, y, width - 20, bodyHeight + headingHeight, 16, 0xffe9ecf0);
-        rect(canvas, 11, y + 1, width - 22, bodyHeight + headingHeight - 2, 15, Color.WHITE);
+        rect(canvas, 10, y, width - 20, bodyHeight + headingHeight + 2, 16, 0xffe9ecf0);
+        rect(canvas, 11, y + 1, width - 22, bodyHeight + headingHeight, 15, Color.WHITE);
         paint.setColor(0xfff0f2f5);
         canvas.drawRect(11, y + headingHeight - 1, width - 11, y + headingHeight, paint);
         paint.setColor(0xff242b37);
         paint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         paint.setTextSize(16);
-        canvas.drawText(title, 25, y + 29, paint);
+        canvas.drawText(title, 25, y + headingHeight / 2 + 6, paint);
         paint.setColor(0xffb6bec9);
         paint.setTextSize(12);
-        canvas.drawText("刷新", width - 49, y + 29, paint);
-        float inner = width - 56;
+        canvas.drawText("刷新", width - 49, y + headingHeight / 2 + 5, paint);
+        float inner = width - 58, top = y + 1 + headingHeight;
+        float center = top + bodyHeight / 2;
         if (identity) {
-            skeleton(canvas, width * .22f, y + 72, width * .56f, 18);
-            skeleton(canvas, 28, y + 112, inner, 100);
-            skeleton(canvas, width * .19f, y + 236, width * .62f, 14);
-            skeleton(canvas, width * .24f, y + 274, width * .52f, 12);
-            skeleton(canvas, width * .15f, y + 310, width * .7f, 12);
+            bar(canvas, width, inner * .32f, pdd ? top + 10 : center - 49, 16);
+            bar(canvas, width, inner, pdd ? top + 38 : center - 23, pdd ? 100 : 72);
+            if (pdd) bar(canvas, width, inner * .70f, top + 150, 14);
+        } else if (pdd) {
+            bar(canvas, width, inner * .94f, center - 35, 14);
+            bar(canvas, width, inner * .94f, center - 11, 14);
+            bar(canvas, width, inner * .78f, center + 13, 22);
         } else {
-            skeleton(canvas, 28, y + 70, inner, 16);
-            skeleton(canvas, width * .23f, y + 104, width * .54f, 13);
-            skeleton(canvas, width * .24f, y + 140, width * .52f, 22);
+            bar(canvas, width, inner * .68f, center - 46, 14);
+            bar(canvas, width, inner * .50f, center - 22, 44);
+            bar(canvas, width, inner * .68f, center + 32, 14);
         }
+    }
+
+    private void bar(Canvas canvas, float width, float size, float y, float height) {
+        if (size > 0) skeleton(canvas, (width - size) / 2, y, size, height);
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -108,8 +135,18 @@ final class PddLoadingView extends View {
         canvas.save();
         canvas.scale(scale, scale);
         float width = getWidth() / scale;
+        if (openingPhoneManagement) {
+            paint.setColor(0xff697386);
+            paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+            paint.setTextSize(13);
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("正在打开号码管理…", width / 2, getHeight() / scale / 2, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+            canvas.restore();
+            return;
+        }
         card(canvas, 12, width, identityHeight, "身份码", true);
-        float parcelsTop = 26 + headingHeight + identityHeight;
+        float parcelsTop = 28 + headingHeight + identityHeight;
         card(canvas, parcelsTop, width, parcelsHeight, "待取包裹", false);
         // Mirrors the Taobao first-load note so both tabs explain the wait.
         // Drawn only when the cards leave room, so it never covers content.

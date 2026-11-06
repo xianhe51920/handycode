@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext, Script } from 'node:vm';
 const controllerScript = readFileSync(new URL('../app/src/main/assets/refresh-controller.js', import.meta.url), 'utf8');
 const officialScript = readFileSync(new URL('../app/src/main/assets/official-identity.js', import.meta.url), 'utf8');
-const html = readFileSync(new URL('../app/src/main/assets/taobao.html', import.meta.url), 'utf8').replace('@@REFRESH_CONTROLLER@@', controllerScript).replace('@@OFFICIAL_IDENTITY@@', officialScript);
+const motion = readFileSync(new URL('../app/src/main/assets/pickup-motion.js', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../app/src/main/assets/taobao.html', import.meta.url), 'utf8').replace('@@REFRESH_CONTROLLER@@', controllerScript).replace('@@OFFICIAL_IDENTITY@@', officialScript).replace('@@PICKUP_MOTION@@', motion);
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(match[1]);
 const scope = {}; runInNewContext(controllerScript, scope);
 function fixture() {

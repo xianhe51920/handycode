@@ -27,6 +27,11 @@ public final class UrlPolicyTest {
                 "https://mobile.yangkeduo.com/", "https://m.pinduoduo.net/mdkd/package?tab=ID_CODE",
                 "pinduoduo://com.xunmeng.pinduoduo/mdkd/package?tab=ID_CODE"})
             expect(false, url);
+        String addPhone = UrlPolicy.TAOBAO_ENTRY.replace("identity-code", "add-friend-phone-ssr");
+        if (!UrlPolicy.isTaobaoAddPhonePage(addPhone + "?skeleton=true")
+                || UrlPolicy.isTaobaoAddPhonePage(UrlPolicy.TAOBAO_ENTRY)
+                || UrlPolicy.isTaobaoAddPhonePage(addPhone.replace("pages-fast.m.taobao.com", "login.taobao.com")))
+            throw new AssertionError("The nested phone window must start at the official add-phone form.");
         System.out.println("PASS: " + checked + " Taobao navigation allowlist cases.");
     }
 }

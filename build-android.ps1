@@ -30,6 +30,13 @@ function Invoke-Checked {
     & $Executable @Arguments
     if ($LASTEXITCODE -ne 0) {throw ('Command failed ('+$LASTEXITCODE+'): '+$Executable)}
 }
+function Invoke-Javac {
+    param([string]$LogPath,[string[]]$Arguments)
+    & $javac @Arguments *> $LogPath
+    $compileExit = $LASTEXITCODE
+    Get-Content -LiteralPath $LogPath
+    if ($compileExit -ne 0) {throw "javac failed ($compileExit). See $LogPath"}
+}
 $buildRoot=Join-Path $projectRoot ('build\run-'+[Guid]::NewGuid().ToString('N'))
 $classes=Join-Path $buildRoot 'classes'
 $generated=Join-Path $buildRoot 'generated'
@@ -64,14 +71,21 @@ $sourceFiles+=@(Get-ChildItem -LiteralPath $generated -Recurse -Filter '*.java' 
 $sourceList=Join-Path $buildRoot 'sources.txt'
 $sourceLines=($sourceFiles | ForEach-Object {'"'+$_.Replace('\','/')+'"'}) -join [Environment]::NewLine
 [IO.File]::WriteAllText($sourceList,$sourceLines,[Text.UTF8Encoding]::new($false))
-Invoke-Checked $javac @('-encoding','UTF-8','--release','8','-classpath',($androidJar+[IO.Path]::PathSeparator+$siteDataJar),'-d',$classes,('@'+$sourceList))
+Invoke-Javac (Join-Path $buildRoot 'javac.log') @('-encoding','UTF-8','--release','8','-classpath',($androidJar+[IO.Path]::PathSeparator+$siteDataJar),'-d',$classes,('@'+$sourceList))
+foreach ($requiredClass in @('MainActivity','PddPage','TaobaoLoadGuard')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $classes ('com\fairycrane\handycode\'+$requiredClass+'.class')))) {
+        throw "Missing $requiredClass.class after compilation."
+    }
+}
 Write-Output '3/6 Test URL navigation rules'
-Invoke-Checked $javac @('-encoding','UTF-8','--release','8','-d',$testClasses,
+Invoke-Javac (Join-Path $buildRoot 'javac-tests.log') @('-encoding','UTF-8','--release','8','-d',$testClasses,
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\UrlPolicy.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\PddBundleAdapter.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\SwitchMotion.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\LogoutSites.java'),
     (Join-Path $sourceRoot 'java\com\fairycrane\handycode\SiteClearQueue.java'),
+    (Join-Path $sourceRoot 'java\com\fairycrane\handycode\TaobaoLoadGuard.java'),
+    (Join-Path $projectRoot 'tests\TaobaoLoadGuardTest.java'),
     (Join-Path $projectRoot 'tests\SiteClearQueueTest.java'),
     (Join-Path $projectRoot 'tests\UrlPolicyTest.java'),
     (Join-Path $projectRoot 'tests\PddUrlPolicyTest.java'),
@@ -82,6 +96,7 @@ Invoke-Checked $java @('-cp',$testClasses,'PddUrlPolicyTest')
 Invoke-Checked $java @('-cp',$testClasses,'PddBundleAdapterTest')
 Invoke-Checked $java @('-cp',$testClasses,'SwitchMotionTest')
 Invoke-Checked $java @('-cp',$testClasses,'SiteClearQueueTest')
+Invoke-Checked $java @('-cp',$testClasses,'TaobaoLoadGuardTest')
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-same-origin.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-section-refresh.test.mjs'))
 Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-login-client.test.mjs'))

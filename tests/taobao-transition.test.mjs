@@ -4,20 +4,24 @@ import {runInNewContext} from 'node:vm';
 import {parseHTML} from 'linkedom';
 const html=readFileSync(new URL('../app/src/main/assets/taobao.html',import.meta.url),'utf8');
 const controller=readFileSync(new URL('../app/src/main/assets/refresh-controller.js',import.meta.url),'utf8');
+const motion=readFileSync(new URL('../app/src/main/assets/pickup-motion.js',import.meta.url),'utf8');
 const main=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
 const {window,document}=parseHTML(html);
-let time=0,seq=0,detailClicks=0,latestDetailHandler=0,clickedDetailHandler=0;const tasks=new Map(),docs={},reloads={identity:0,parcels:0},animations=[];
+let time=0,seq=0,detailClicks=0,manageClicks=0,latestDetailHandler=0,clickedDetailHandler=0;const tasks=new Map(),docs={},reloads={identity:0,parcels:0},animations=[];
 const computed=e=>({display:e.style.display||'block',visibility:'visible',position:'static',overflowY:'visible',getPropertyValue:p=>e.style.getPropertyValue(p)||''});
 window.getComputedStyle=computed;window.matchMedia=()=>({matches:false});
 window.HTMLElement.prototype.getBoundingClientRect=function(){return {height:this.tagName==='NAV'?30:parseFloat(this.style.height)||this.expectedHeight||(this.id==='identity-content'?220:200)};};
 window.HTMLElement.prototype.animate=function(frames,options){animations.push({node:this,frames,options});};
 function source(part,label='fixture'){
  const {document:doc}=parseHTML(part==='identity'
-  ? `<html><body><div class="identity--fixture"><p>${label}</p><img class="width-origin--fixture" src="data:image/png;base64,test-only" /></div></body></html>`
-  : `<html><body><main><nav><span>待取件</span><span>追踪中</span><span>已签收</span><span>已退回</span></nav><p>${label}暂无包裹</p><button>查看详情</button></main></body></html>`);
+  ? `<html><body><div class="identity--fixture"><p>${label}</p><div class="have-authenticated">已认证</div><img class="width-origin--fixture" src="data:image/png;base64,test-only" /><div class="code--fixture">DEMO-CODE-TEXT</div></div><a href="/phone-manage"><span>号码管理</span></a></body></html>`
+  : `<html><body><main><nav><span>待取件</span><span>追踪中</span><span>已签收</span><span>已退回</span></nav><p>${label}取件码 TEST-123</p><figure class="holder--fixture"><img alt="包裹缩略图"><div class="thumbnail--fixture"><svg></svg><div class="text--fixture">看包裹</div></div></figure><button>查看详情</button><button>查看地址</button><div><svg></svg>求助</div><div class="position--fixture">点击 能看包裹图 <img></div><div class="container--fixture"><i></i><div class="package--fixture">还有包裹未显示？查询取件码</div></div><div class="operation--fixture"><i></i><div>好友代取</div></div></main></body></html>`);
  Object.defineProperties(doc,{readyState:{value:'complete'},URL:{value:'https://example.test/'+part}});
  doc.defaultView.getComputedStyle=computed;
- if(part==='identity')Object.defineProperties(doc.querySelector('img'),{complete:{value:true},naturalWidth:{value:600}});
+ if(part==='identity'){
+  Object.defineProperties(doc.querySelector('img'),{complete:{value:true},naturalWidth:{value:600}});
+  doc.querySelector('a').addEventListener('click',()=>manageClicks++);
+ }
  else {const version=++latestDetailHandler;doc.querySelector('button').addEventListener('click',()=>{detailClicks++;clickedDetailHandler=version;});}
  return doc;
 }
@@ -29,11 +33,17 @@ for(const part of ['identity','parcels']){
 const context={window,document,Date:{now:()=>time},WeakMap,MutationObserver:class{observe(){}disconnect(){}},
  setTimeout(fn,delay){tasks.set(++seq,{fn,at:time+delay});return seq;},clearTimeout:id=>tasks.delete(id),setInterval(){},
  HandyCodeOfficialIdentity:{refreshControl:()=>false,recover(){}}};
-runInNewContext(controller,context);runInNewContext(main,context);
+runInNewContext(controller,context);runInNewContext(motion,context);runInNewContext(main,context);
 function advance(ms){const end=time+ms;for(;;){const next=[...tasks].filter(([,t])=>t.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;time=next[1].at;tasks.delete(next[0]);next[1].fn();}time=end;}
 advance(1200);
 const identity=document.getElementById('identity-content'),parcels=document.getElementById('parcels-content');
 assert.equal(identity.dataset.ready,'true');assert.equal(parcels.dataset.ready,'true');
+assert.ok(identity.querySelector('img'));
+assert.doesNotMatch(identity.textContent,/已认证|DEMO-CODE-TEXT/);
+const phoneManage=document.querySelector('[data-phone-manage]');
+assert.equal(phoneManage.hidden,false);
+phoneManage.click();
+assert.equal(manageClicks,1,'Parcel heading delegates to the live official phone management control');
 const parcelBefore=parcels.firstElementChild;
 const idButton=document.querySelector('[data-refresh="identity"]'),parcelButton=document.querySelector('[data-refresh="parcels"]');
 document.getElementById('parcels-source').dispatchEvent(new window.Event('load'));
@@ -79,6 +89,10 @@ assert.equal(clickedDetailHandler,latestDetailHandler,'Preserved buttons invoke 
 docs.parcels=source('parcels','passive-new-result');
 document.getElementById('parcels-source').dispatchEvent(new window.Event('load'));advance(300);
 assert.ok(parcels.textContent.includes('passive-new-result'),'Real passive data changes still reach the card');
-assert.equal(parcels.querySelector('.hc-section-enter'),null,'Passive updates do not replay the entry fade');
+assert.ok(parcels.textContent.includes('取件码 TEST-123'));
+assert.doesNotMatch(parcels.textContent,/查看地址|求助|看包裹|还有包裹未显示|好友代取/);
+assert.equal(parcels.querySelector('figure').children.length,1,'The thumbnail remains and the entire badge is removed');
+assert.ok(parcels.querySelector('figure img[alt="包裹缩略图"]'));
+assert.equal(parcels.querySelector('.hc-pickup-outgoing'),null,'Passive updates do not replay the skeleton exit');
 assert.equal(parcelButton.disabled,false);assert.equal(identity.firstElementChild,identityBefore);
 console.log('PASS: Taobao section skeleton, measured height, content transition, independent controls, stale-document guard and stable other subtree');

@@ -8,7 +8,10 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,6 +36,7 @@ public final class MainActivity extends Activity {
     private static final int INK = 0xff242b37, MUTED = 0xff697386;
     private static final int BG = 0xfff7f8fb, ACCENT = 0xffeb6238;
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
+    private static final String TAOBAO_PACKAGE = "com.taobao.taobao";
     private static final int TAB_TAOBAO = 0, TAB_PDD = 1;
     private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab";
     private WebView browser;
@@ -46,6 +50,10 @@ public final class MainActivity extends Activity {
     private int combineGeneration;
     private int popupGeneration;
     private boolean combinedDisplayed;
+    private final Handler taobaoHandler = new Handler(Looper.getMainLooper());
+    private final TaobaoLoadGuard taobaoLoad = new TaobaoLoadGuard();
+    private final Runnable taobaoDeadline = this::checkTaobaoDeadline;
+    private boolean taobaoLoadFailed, taobaoLoginVisible, taobaoIdentityLoading;
     private int selected = 0;
     private SwipeFrameLayout viewport;
     private View bottomNavigation;
@@ -60,13 +68,15 @@ public final class MainActivity extends Activity {
     private boolean selectionInitialized, pageDragging, activityResumed;
     private final boolean[] opened = new boolean[2];
     private float dragStart;
-    private View transitionPanel;
+    private PickupLoadingView transitionPanel;
     private long transitionStarted;
     private int transitionGeneration;
-    private final java.util.List<ShimmerBlock> shimmerBlocks = new java.util.ArrayList<>();
-    private android.animation.ValueAnimator shimmerAnimation;
+    private boolean transitionRevealQueued;
     private Dialog popupDialog;
     private WebView popupView;
+    private WebView phoneAddView;
+    private boolean phoneAddPageStarted;
+    private boolean popupPhoneManagement;
     private long lastBlockedNotice = 0;
     private final SiteDataClearer.Observer logoutListener = new SiteDataClearer.Observer() {
         @Override public void onStarted(int page) {
@@ -79,9 +89,10 @@ public final class MainActivity extends Activity {
             else {
                 ++combineGeneration;
                 ++popupGeneration;
+                resetTaobaoLoad();
                 combinedMarkup = null;
                 combinedDisplayed = false;
-                if (popupDialog != null) popupDialog.dismiss();
+                closePopup();
                 if (browser != null) {
                     browser.stopLoading();
                     browser.setWebViewClient(new WebViewClient());
@@ -123,12 +134,16 @@ public final class MainActivity extends Activity {
             && switchMotion.position() == selected;
         logoutButton.setEnabled(enabled);
         logoutButton.setAlpha(!authenticated && !busy || enabled ? 1f : .45f);
-        logoutButton.setText(busy ? "退出中" : authenticated ? "退出登录" : "未登录");
+        String status = "未登录";
+        if (selected == TAB_TAOBAO && !taobaoLoginVisible) {
+            status = taobaoLoadFailed ? "状态待确认" : taobaoIdentityLoading ? "正在获取身份码" : "正在加载";
+        }
+        logoutButton.setText(busy ? "退出中" : authenticated ? "退出登录" : status);
         logoutButton.setTextColor(authenticated ? INK : MUTED);
         logoutButton.setCompoundDrawablesRelative(null, null, authenticated || busy ? logoutIcon : null, null);
         String platform = selected == TAB_PDD ? "拼多多" : "淘宝";
         logoutButton.setContentDescription(busy ? "正在退出" + platform + "登录"
-            : authenticated ? "退出" + platform + "登录" : platform + "未登录");
+            : authenticated ? "退出" + platform + "登录" : platform + "：" + status);
         for (Button tab : navigation) if (tab != null) tab.setEnabled(!busy);
         if (viewport != null) viewport.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
         if (bottomNavigation != null) ((SwipeFrameLayout)bottomNavigation).setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
@@ -150,7 +165,8 @@ public final class MainActivity extends Activity {
         else systemUi |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
         getWindow().getDecorView().setSystemUiVisibility(systemUi);
-        WebView.setWebContentsDebuggingEnabled(false);
+        WebView.setWebContentsDebuggingEnabled(
+            (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         if (state != null) {
             int restored = state.getInt("selected", TAB_TAOBAO);
             selected = restored == 1 || restored == 2 ? TAB_PDD : TAB_TAOBAO;
@@ -366,12 +382,31 @@ public final class MainActivity extends Activity {
         ((SwipeFrameLayout) bottomNavigation).setSwipeEnabled(padding == 0 && !SiteDataClearer.isBusy());
         viewport.setPadding(0, 0, 0, padding);
         if (padding > 0 && selected == TAB_PDD) pddPage.post(pddPage::scrollFocusedInput);
-        if (padding > 0 && selected == TAB_TAOBAO && browser != null && !combinedDisplayed) {
-            final WebView web = browser;
+        final WebView web = taobaoInputView();
+        if (padding > 0 && selected == TAB_TAOBAO && web != null) {
             web.post(() -> {
-                if (isFinishing() || isDestroyed() || browser != web || selected != TAB_TAOBAO) return;
+                if (isFinishing() || isDestroyed() || taobaoInputView() != web || selected != TAB_TAOBAO) return;
                 web.evaluateJavascript("(function(){var e=document.activeElement;if(e&&e.matches('input,textarea,[contenteditable=true]'))e.scrollIntoView({block:'center',inline:'nearest'});})()", null);
             });
+        }
+    }
+
+    private WebView taobaoInputView() {
+        if (phoneAddView != null && phoneAddView.getVisibility() == View.VISIBLE) return phoneAddView;
+        if (popupPhoneManagement && popupView != null && popupView.getVisibility() == View.VISIBLE) return popupView;
+        return combinedDisplayed ? null : browser;
+    }
+
+    private void openTaobaoIdentity() {
+        android.content.Intent link = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse(UrlPolicy.TAOBAO_ENTRY));
+        link.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+        link.setPackage(TAOBAO_PACKAGE);
+        try {
+            startActivity(link);
+        } catch (android.content.ActivityNotFoundException | SecurityException unavailable) {
+            android.widget.Toast.makeText(this, "无法打开淘宝身份码，请确认已安装或更新淘宝 App",
+                android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
@@ -394,69 +429,29 @@ public final class MainActivity extends Activity {
     }
 
     private void buildTransitionPanel() {
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(10), dp(12), dp(10), dp(16));
-        content.setBackgroundColor(BG);
-        content.setClickable(true);
-        content.setContentDescription("正在准备身份码和待取包裹");
-        for (int i = 0; i < 2; i++) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackground(background(Color.WHITE, 16));
-            card.setPadding(dp(16), dp(18), dp(16), dp(18));
-            TextView title = label(i == 0 ? "身份码" : "待取包裹", 16, INK, true);
-            card.addView(title);
-            LinearLayout placeholders = new LinearLayout(this);
-            placeholders.setOrientation(LinearLayout.VERTICAL);
-            placeholders.setGravity(Gravity.CENTER);
-            for (int j = 0; j < 3; j++) {
-                ShimmerBlock block = new ShimmerBlock(this, dp(j == 1 ? 12 : 6));
-                shimmerBlocks.add(block);
-                LinearLayout.LayoutParams shape = new LinearLayout.LayoutParams(
-                    j == 1 ? -1 : dp(j == 0 ? 112 : 148), dp(j == 1 ? 64 : 12));
-                shape.setMargins(dp(6), dp(12), dp(6), dp(12));
-                placeholders.addView(block, shape);
-            }
-            card.addView(placeholders, new LinearLayout.LayoutParams(-1, 0, 1f));
-            LinearLayout.LayoutParams section = new LinearLayout.LayoutParams(-1, 0, 1f);
-            if (i == 0) section.bottomMargin = dp(14);
-            content.addView(card, section);
-        }
-        TextView note = label("正在准备取件信息…", 12, MUTED, false);
-        note.setGravity(Gravity.CENTER);
-        note.setPadding(0, dp(12), 0, 0);
-        content.addView(note);
-        content.setVisibility(View.GONE);
-        transitionPanel = content;
-        browserFrame.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        transitionPanel = new PickupLoadingView(this, false);
+        transitionPanel.setVisibility(View.GONE);
+        browserFrame.addView(transitionPanel, new FrameLayout.LayoutParams(-1, -1));
     }
 
     private void startShimmer() {
-        if (!activityResumed || selected != TAB_TAOBAO || !opened[TAB_TAOBAO]) return;
-        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
-        if (shimmerAnimation == null) {
-            shimmerAnimation = android.animation.ValueAnimator.ofFloat(0f, 1f);
-            shimmerAnimation.setDuration(1400);
-            shimmerAnimation.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            shimmerAnimation.setInterpolator(new android.view.animation.LinearInterpolator());
-            shimmerAnimation.addUpdateListener(animation -> {
-                float value = (float) animation.getAnimatedValue();
-                for (ShimmerBlock block : shimmerBlocks) block.setPhase(value);
-            });
-        }
-        if (!shimmerAnimation.isStarted()) shimmerAnimation.start();
+        transitionPanel.setAnimating(activityResumed && selected == TAB_TAOBAO && opened[TAB_TAOBAO]);
     }
 
     private void stopShimmer() {
-        if (shimmerAnimation != null) shimmerAnimation.cancel();
+        transitionPanel.setAnimating(false);
     }
 
     private void showTransition() {
-        if (transitionPanel == null || combinedMarkup == null) return;
+        if (transitionPanel == null || combinedMarkup == null || taobaoLoadFailed) return;
+        if (!taobaoLoginVisible) {
+            taobaoLoad.begin();
+            updateTaobaoDeadline();
+        }
         transitionGeneration++;
+        transitionRevealQueued = false;
         transitionPanel.animate().cancel();
-        if (transitionPanel.getVisibility() != View.VISIBLE) transitionStarted = android.os.SystemClock.elapsedRealtime();
+        if (transitionPanel.getVisibility() != View.VISIBLE) transitionPanel.resetGeometry();
         transitionPanel.setAlpha(1f);
         transitionPanel.setVisibility(View.VISIBLE);
         transitionPanel.bringToFront();
@@ -468,19 +463,70 @@ public final class MainActivity extends Activity {
         final int token = ++transitionGeneration;
         transitionPanel.animate().cancel();
         if (!fade) { stopShimmer(); transitionPanel.setVisibility(View.GONE); transitionPanel.setAlpha(1f); return; }
-        transitionPanel.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+        transitionPanel.animate().alpha(0f).setDuration(PickupLoadingView.REVEAL_DURATION).withEndAction(() -> {
             if (token == transitionGeneration) { stopShimmer(); transitionPanel.setVisibility(View.GONE); transitionPanel.setAlpha(1f); }
         }).start();
     }
 
     private void waitForMergedPresentation(WebView view, final int generation) {
         if (isFinishing() || isDestroyed() || generation != combineGeneration || browser != view || combinedMarkup == null) return;
-        String ready = "(function(){var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');return !!(a&&b&&a.dataset.ready==='true'&&b.dataset.ready==='true');})()";
+        String ready = "(function(){var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');"
+            + "if(!a||!b||!window.HandyPickupMotion)return null;"
+            + "return {width:innerWidth,identity:a.getBoundingClientRect().height,parcels:b.getBoundingClientRect().height,"
+            + "heading:document.querySelector('.hc-heading').getBoundingClientRect().height,ready:!!(a.dataset.ready&&b.dataset.ready)};})()";
         view.evaluateJavascript(ready, complete -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
-            if ("true".equals(complete) || android.os.SystemClock.elapsedRealtime() - transitionStarted >= 12000) hideTransition(true);
-            else view.postDelayed(() -> waitForMergedPresentation(view, generation), 200);
+            boolean readyCards = false;
+            try {
+                org.json.JSONObject geometry = new org.json.JSONObject(complete);
+                readyCards = geometry.getBoolean("ready");
+                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) {
+                    final int token = transitionGeneration;
+                    transitionRevealQueued = true;
+                    view.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
+                        @Override public void onComplete(long requestId) {
+                            if (generation != combineGeneration || browser != view || token != transitionGeneration
+                                    || isFinishing() || isDestroyed()) return;
+                            transitionPanel.morphTo((float)geometry.optDouble("width"), (float)geometry.optDouble("identity"),
+                                (float)geometry.optDouble("parcels"), (float)geometry.optDouble("heading"));
+                            hideTransition(true);
+                        }
+                    });
+                }
+            } catch (org.json.JSONException notReady) { /* The merged document is still being prepared. */ }
+            if (readyCards || SystemClock.elapsedRealtime() - transitionStarted >= 12000) {
+                stopTaobaoDeadline();
+                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) hideTransition(true);
+            } else view.postDelayed(() -> waitForMergedPresentation(view, generation), 200);
         });
+    }
+
+    private void updateTaobaoDeadline() {
+        taobaoHandler.removeCallbacks(taobaoDeadline);
+        long now = SystemClock.elapsedRealtime();
+        if (activityResumed && selected == TAB_TAOBAO && popupView == null) taobaoLoad.resume(now);
+        else taobaoLoad.pause(now);
+        long delay = taobaoLoad.delay(now);
+        if (delay >= 0) taobaoHandler.postDelayed(taobaoDeadline, delay);
+    }
+
+    private void stopTaobaoDeadline() {
+        taobaoHandler.removeCallbacks(taobaoDeadline);
+        taobaoLoad.stop();
+    }
+
+    private void resetTaobaoLoad() {
+        stopTaobaoDeadline();
+        taobaoLoadFailed = taobaoLoginVisible = taobaoIdentityLoading = false;
+    }
+
+    private void checkTaobaoDeadline() {
+        if (taobaoLoad.delay(SystemClock.elapsedRealtime()) != 0) {
+            updateTaobaoDeadline();
+            return;
+        }
+        failTaobaoLoad("淘宝取件信息暂未加载完成",
+            "请先在淘宝 App 确认已开通取件身份码，再点“重新打开网页”重试。重新打开会保留已有登录状态。", true);
     }
 
     private void buildErrorPanel() {
@@ -501,6 +547,13 @@ public final class MainActivity extends Activity {
         errorDetail.setGravity(Gravity.CENTER);
         errorDetail.setLineSpacing(dp(5), 1f);
         errorPanel.addView(errorDetail, size(-1, -2));
+        Button openIdentity = button("打开淘宝身份码", false);
+        openIdentity.setTag("error_open_identity");
+        openIdentity.setVisibility(View.GONE);
+        openIdentity.setOnClickListener(v -> openTaobaoIdentity());
+        LinearLayout.LayoutParams actionSize = size(-1, 48);
+        actionSize.bottomMargin = dp(10);
+        errorPanel.addView(openIdentity, actionSize);
         Button retry = button("重新打开网页", true);
         retry.setOnClickListener(v -> reloadTaobao());
         errorPanel.addView(retry, size(-1, 48));
@@ -525,7 +578,7 @@ public final class MainActivity extends Activity {
         if (!opened[TAB_TAOBAO]) {
             transitionPanel.setVisibility(View.VISIBLE);
             transitionPanel.setAlpha(1f);
-            for (ShimmerBlock block : shimmerBlocks) block.setPhase(0f);
+            transitionPanel.resetGeometry();
         }
         if (!opened[TAB_PDD]) pddPage.idlePage();
     }
@@ -622,6 +675,7 @@ public final class MainActivity extends Activity {
         selectionInitialized = true;
         boolean changed = selected != target;
         selected = target;
+        updateTaobaoDeadline();
         rememberTab(target);
         switchMotion.commit(target);
         for (int i = 0; i < navigation.length; i++) {
@@ -673,7 +727,11 @@ public final class MainActivity extends Activity {
     }
 
     private void loadCombined() {
+        transitionStarted = SystemClock.elapsedRealtime();
         combineGeneration++;
+        resetTaobaoLoad();
+        hideError();
+        updateLogoutControls();
         combinedMarkup = null;
         try {
             officialIdentityScript = readAssetText("official-identity.js");
@@ -682,6 +740,7 @@ public final class MainActivity extends Activity {
             combinedMarkup = readAssetText("taobao.html")
                 .replace("@@REFRESH_CONTROLLER@@", readAssetText("refresh-controller.js"))
                 .replace("@@OFFICIAL_IDENTITY@@", officialIdentityScript)
+                .replace("@@PICKUP_MOTION@@", readAssetText("pickup-motion.js"))
                 .replace("@@IDENTITY_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_ENTRY))
                 .replace("@@PARCELS_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_PARCELS_ENTRY));
             combinedDisplayed = false;
@@ -701,7 +760,8 @@ public final class MainActivity extends Activity {
     }
 
     private void renderCombined(WebView view, String url) {
-        if (combinedMarkup == null || combinedGateScript == null || !UrlPolicy.isAllowed(url)) return;
+        if (view != browser || taobaoLoadFailed || combinedDisplayed || combinedMarkup == null
+                || combinedGateScript == null || !UrlPolicy.isAllowed(url)) return;
         waitForOfficialIdentity(view, ++combineGeneration);
     }
 
@@ -761,39 +821,56 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request.isForMainFrame() && rejectPhoneAddNavigation(view, request.getUrl().toString())) return true;
                 if (UrlPolicy.isAllowed(request.getUrl().toString())) return false;
                 if (request.isForMainFrame()) blockedNavigation();
                 return true;
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (rejectPhoneAddNavigation(view, url)) return true;
                 if (UrlPolicy.isAllowed(url)) return false;
                 blockedNavigation();
                 return true;
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                 if ("about:blank".equals(url) && popup) return;
+                if (rejectPhoneAddNavigation(view, url)) { view.stopLoading(); return; }
                 if (!UrlPolicy.isAllowed(url)) {
                     view.stopLoading();
                     blockedNavigation();
                     return;
                 }
-                if (!popup) {
+                if (view == phoneAddView) {
+                    phoneAddPageStarted = true;
+                } else if (!popup) {
+                    if (view != browser || taobaoLoadFailed) return;
                     combinedDisplayed = false;
                     combineGeneration++;
+                    taobaoLoginVisible = taobaoIdentityLoading = false;
+                    updateLogoutControls();
                     if (combinedMarkup != null) showTransition();
-                    hideError();
-                } else popupGeneration++;
+                } else {
+                    popupGeneration++;
+                    if (popupView == view && popupDialog == null && !popupPhoneManagement) {
+                        // The transport only supplies the destination after the window is created.
+                        // Keep it hidden until we know whether it belongs inline or in the login dialog.
+                        popupPhoneManagement = UrlPolicy.isTaobaoPhonePage(url);
+                        if (!popupPhoneManagement) showLoginPopup();
+                    }
+                }
             }
             @Override public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush();
-                if (popup) installPresentationObserver(view);
+                preparePhonePage(view, url);
+                if (popup && !popupPhoneManagement) installPresentationObserver(view);
                 if (!popup) {
                     installPresentationObserver(view);
                     renderCombined(view, url);
                 } else waitForPopupIdentity(view, ++popupGeneration);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
-                installPresentationObserver(view);
+                preparePhonePage(view, url);
+                if (!popup || !popupPhoneManagement) installPresentationObserver(view);
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
                 if (combinedMarkup != null) {
@@ -819,31 +896,45 @@ public final class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
                 String value = message.message();
-                if ((popup ? popupView == web : browser == web) && combinedMarkup != null
-                        && value != null && value.startsWith("__HANDYCODE_PHASE__:")) {
-                    String phase = value.substring("__HANDYCODE_PHASE__:".length());
+                if ((popup ? popupView != web || popupPhoneManagement : browser != web) || combinedMarkup == null
+                        || value == null || !value.startsWith("__HANDYCODE_PHASE__:")) return false;
+                String phase = value.substring("__HANDYCODE_PHASE__:".length());
+                if (popup) {
                     if ("login".equals(phase)) setSignedIn(TAB_TAOBAO, false);
                     else if ("ready".equals(phase) || "merged".equals(phase)) setSignedIn(TAB_TAOBAO, true);
-                    if (popup) return true;
-                }
-                if (!popup && browser == web && combinedMarkup != null
-                        && value != null && value.startsWith("__HANDYCODE_PHASE__:")) {
-                    String phase = value.substring("__HANDYCODE_PHASE__:".length());
+                } else if (!taobaoLoadFailed) {
                     if ("login".equals(phase)) revealOfficialLogin(web);
-                    else if ("loading".equals(phase) && !combinedDisplayed) showTransition();
-                    else if ("ready".equals(phase)) { showTransition(); renderCombined(web, web.getUrl()); }
-                    else if ("merged".equals(phase)) { combinedDisplayed = true; waitForMergedPresentation(web, combineGeneration); }
-                    return true;
+                    else if (!combinedDisplayed && ("loading".equals(phase) || "identity-loading".equals(phase)
+                            || "ready".equals(phase))) {
+                        taobaoLoginVisible = false;
+                        taobaoIdentityLoading = !"loading".equals(phase);
+                        if ("ready".equals(phase)) setSignedIn(TAB_TAOBAO, true);
+                        else updateLogoutControls();
+                        showTransition();
+                        if ("ready".equals(phase)) renderCombined(web, web.getUrl());
+                    } else if ("merged".equals(phase) && !combinedDisplayed) {
+                        combinedDisplayed = true;
+                        setSignedIn(TAB_TAOBAO, true);
+                        waitForMergedPresentation(web, combineGeneration);
+                    }
                 }
-                return false;
+                return true;
             }
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, Message message) {
-                if (!userGesture || popup || popupDialog != null) return false;
+                if (!userGesture) return false;
+                if (popup) {
+                    if (view != popupView || !popupPhoneManagement || phoneAddView != null
+                            || !UrlPolicy.isTaobaoPhonePage(view.getUrl())) return false;
+                    openPhoneAdd(message);
+                    return true;
+                }
+                if (popupView != null) return false;
                 openPopup(message);
                 return true;
             }
             @Override public void onCloseWindow(WebView window) {
-                if (popupDialog != null && window == popupView) popupDialog.dismiss();
+                if (window == phoneAddView) closePhoneAdd(true);
+                else if (window == popupView) closePopup();
             }
             @Override public void onPermissionRequest(android.webkit.PermissionRequest request) {
                 request.deny();
@@ -853,6 +944,41 @@ public final class MainActivity extends Activity {
     }
 
     private void openPopup(Message message) {
+        popupPhoneManagement = false;
+        popupView = createBrowser(true);
+        popupView.setVisibility(View.INVISIBLE);
+        browserFrame.addView(popupView, new FrameLayout.LayoutParams(-1, -1));
+        updateTaobaoDeadline();
+        attachPopup(message, popupView);
+    }
+
+    private void preparePhonePage(WebView view, String url) {
+        if (!popupPhoneManagement || (view != popupView && view != phoneAddView) || !UrlPolicy.isAllowed(url)) return;
+        if (!UrlPolicy.isTaobaoPhonePage(url) && !UrlPolicy.isTaobaoAddPhonePage(url)) {
+            revealPhonePage(view);
+            return;
+        }
+        // In WebView the official quick menu is empty, but still reserves its header height.
+        view.evaluateJavascript("(function(){if(document.getElementById('hc-phone-spacing'))return;"
+            + "var style=document.createElement('style');style.id='hc-phone-spacing';"
+            + "style.textContent=\"#quick-menu-container:empty,#quick-menu-container:empty + div[class^='space--']{display:none!important}\";"
+            + "(document.head||document.documentElement).appendChild(style);})()", ignored -> {
+                if (url.equals(view.getUrl())) revealPhonePage(view);
+            });
+    }
+
+    private void revealPhonePage(WebView view) {
+        if (!popupPhoneManagement) return;
+        if (view == phoneAddView && phoneAddPageStarted) {
+            popupView.setVisibility(View.INVISIBLE);
+        } else if (view != popupView || phoneAddView != null && phoneAddView.getVisibility() == View.VISIBLE) {
+            return;
+        }
+        if (browser != null) browser.setVisibility(View.INVISIBLE);
+        view.setVisibility(View.VISIBLE);
+    }
+
+    private void showLoginPopup() {
         popupDialog = new Dialog(this);
         popupDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout body = new LinearLayout(this);
@@ -864,42 +990,87 @@ public final class MainActivity extends Activity {
         TextView trustedDomains = label("淘宝官方网页登录", 12, MUTED, false);
         trustedDomains.setPadding(dp(16), 0, dp(16), dp(10));
         body.addView(trustedDomains);
-        popupView = createBrowser(true);
+        browserFrame.removeView(popupView);
+        popupView.setVisibility(View.VISIBLE);
         body.addView(popupView, new LinearLayout.LayoutParams(-1, 0, 1f));
         Button close = button("关闭登录窗口", false);
-        close.setOnClickListener(v -> popupDialog.dismiss());
+        close.setOnClickListener(v -> closePopup());
         body.addView(close, size(-1, 48));
         popupDialog.setContentView(body);
-        popupDialog.setOnDismissListener(d -> {
-            popupGeneration++;
-            CookieManager.getInstance().flush();
-            if (popupView != null) {
-                popupView.stopLoading();
-                ((ViewGroup) popupView.getParent()).removeView(popupView);
-                popupView.destroy();
-            }
-            popupView = null; popupDialog = null;
-            if (browser != null && combinedMarkup != null) {
-                final WebView parent = browser;
-                final int generation = combineGeneration;
-                parent.postDelayed(() -> {
-                    if (isFinishing() || isDestroyed() || browser != parent || generation != combineGeneration) return;
-                    if (combinedDisplayed) refreshAfterLogin();
-                    else parent.loadUrl(UrlPolicy.TAOBAO_ENTRY);
-                }, 300);
-            }
-        });
+        popupDialog.setOnDismissListener(d -> disposePopup());
         popupDialog.show();
         Window window = popupDialog.getWindow();
         if (window != null) window.setLayout(-1, -1);
+    }
+
+    private void closePopup() {
+        if (popupDialog != null) popupDialog.dismiss();
+        else disposePopup();
+    }
+
+    private void disposePopup() {
+        if (popupView == null) return;
+        popupGeneration++;
+        final boolean phoneManagement = popupPhoneManagement;
+        closePhoneAdd(false);
+        WebView closed = popupView;
+        popupView = null; popupDialog = null; popupPhoneManagement = false;
+        closed.stopLoading();
+        ((ViewGroup) closed.getParent()).removeView(closed);
+        closed.destroy();
+        updateTaobaoDeadline();
+        if (browser != null && phoneManagement) browser.setVisibility(View.VISIBLE);
+        if (browser != null && combinedMarkup != null && !taobaoLoadFailed) {
+            final WebView parent = browser;
+            final int generation = combineGeneration;
+            CookieManager.getInstance().flush();
+            parent.postDelayed(() -> {
+                if (isFinishing() || isDestroyed() || browser != parent || generation != combineGeneration || popupView != null) return;
+                if (phoneManagement && combinedDisplayed) parent.evaluateJavascript("window.HandyCodeRefreshParcels?.()", null);
+                else if (combinedDisplayed) refreshAfterLogin();
+                else parent.loadUrl(UrlPolicy.TAOBAO_ENTRY);
+            }, 300);
+        }
+    }
+
+    private void openPhoneAdd(Message message) {
+        phoneAddView = createBrowser(true);
+        phoneAddView.setVisibility(View.INVISIBLE);
+        browserFrame.addView(phoneAddView, new FrameLayout.LayoutParams(-1, -1));
+        attachPopup(message, phoneAddView);
+    }
+
+    private boolean rejectPhoneAddNavigation(WebView view, String url) {
+        if (view != phoneAddView || phoneAddPageStarted || UrlPolicy.isTaobaoAddPhonePage(url)) return false;
+        view.post(() -> { if (view == phoneAddView) closePhoneAdd(false); });
+        return true;
+    }
+
+    private void closePhoneAdd(boolean reloadManager) {
+        WebView child = phoneAddView;
+        if (child == null) return;
+        phoneAddView = null;
+        boolean opened = phoneAddPageStarted;
+        phoneAddPageStarted = false;
+        child.stopLoading();
+        ((ViewGroup) child.getParent()).removeView(child);
+        child.destroy();
+        popupView.setVisibility(View.VISIBLE);
+        if (opened && reloadManager) {
+            CookieManager.getInstance().flush();
+            popupView.reload();
+        }
+    }
+
+    private void attachPopup(Message message, WebView view) {
         WebView.WebViewTransport transport = (WebView.WebViewTransport) message.obj;
-        transport.setWebView(popupView);
+        transport.setWebView(view);
         message.sendToTarget();
     }
 
     private void waitForPopupIdentity(WebView view, final int generation) {
         if (isFinishing() || isDestroyed() || generation != popupGeneration || popupView != view
-                || combinedMarkup == null || combinedGateScript == null || !UrlPolicy.isAllowed(view.getUrl())) return;
+                || popupPhoneManagement || combinedMarkup == null || combinedGateScript == null || !UrlPolicy.isAllowed(view.getUrl())) return;
         view.evaluateJavascript(officialIdentityScript + "\n" + combinedGateScript, ready -> {
             if (generation != popupGeneration || popupView != view || isFinishing() || isDestroyed()) return;
             if ("true".equals(ready) && sameIdentityPage(view.getUrl())) {
@@ -917,7 +1088,9 @@ public final class MainActivity extends Activity {
         if (UrlPolicy.isAllowed(view.getUrl()) && officialIdentityScript != null) {
             view.evaluateJavascript(officialIdentityScript + "\nHandyCodeOfficialIdentity.recover(document,Date.now())",
                 status -> {
-                    if (!popup && generation == combineGeneration && "\"login\"".equals(status)) revealOfficialLogin(view);
+                    if (popup ? generation != popupGeneration || view != popupView
+                            : generation != combineGeneration || view != browser || combinedDisplayed) return;
+                    if (!popup && "\"login\"".equals(status)) revealOfficialLogin(view);
                     view.postDelayed(next, 650);
                 });
         } else view.postDelayed(next, 650);
@@ -929,13 +1102,21 @@ public final class MainActivity extends Activity {
     }
 
     private void revealOfficialLogin(WebView view) {
-        if (browser != view || taobaoLoginChromeScript == null || transitionPanel.getVisibility() != View.VISIBLE) return;
+        if (browser != view || taobaoLoadFailed) return;
+        if (!taobaoLoginVisible) {
+            taobaoLoginVisible = true;
+            taobaoIdentityLoading = false;
+            stopTaobaoDeadline();
+            setSignedIn(TAB_TAOBAO, false);
+        }
+        if (taobaoLoginChromeScript == null || transitionPanel.getVisibility() != View.VISIBLE) return;
         final int expected = combineGeneration;
         view.evaluateJavascript(taobaoLoginChromeScript, ignored -> {
             if (browser != view || expected != combineGeneration || isFinishing() || isDestroyed()) return;
             view.postVisualStateCallback(expected, new WebView.VisualStateCallback() {
                 @Override public void onComplete(long requestId) {
-                    if (browser == view && expected == combineGeneration && !isFinishing() && !isDestroyed()) hideTransition(false);
+                    if (browser == view && expected == combineGeneration && taobaoLoginVisible
+                            && !isFinishing() && !isDestroyed()) hideTransition(false);
                 }
             });
         });
@@ -946,23 +1127,31 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("登录网页暂时无法打开")
                 .setMessage(description).setPositiveButton("知道了", null).show();
         } else {
-            hideTransition(false);
-            showError("网页暂时无法打开", description);
+            failTaobaoLoad("网页暂时无法打开", description, false);
         }
+    }
+
+    private void failTaobaoLoad(String title, String detail, boolean offerIdentityLink) {
+        if (taobaoLoadFailed) return;
+        taobaoLoadFailed = true;
+        taobaoLoginVisible = false;
+        combineGeneration++;
+        stopTaobaoDeadline();
+        hideTransition(false);
+        showError(title, detail, offerIdentityLink);
+        updateLogoutControls();
     }
 
     private void recoverBrowser(WebView view, boolean popup) {
         if (popup) {
-            if (popupDialog != null) popupDialog.dismiss();
+            if (view == popupView || view == phoneAddView) closePopup();
             return;
         }
         if (browser != view) return;
-        combineGeneration++;
-        hideTransition(false);
+        failTaobaoLoad("网页组件已停止", "点击“重新打开网页”即可恢复。", false);
         browserFrame.removeView(view);
         view.destroy();
         browser = null;
-        showError("网页组件已停止", "点击“重新打开网页”即可恢复。");
     }
 
     private void blockedNavigation() {
@@ -979,9 +1168,10 @@ public final class MainActivity extends Activity {
         if (overlay != null) overlay.setVisibility(View.GONE);
     }
 
-    private void showError(String title, String detail) {
+    private void showError(String title, String detail, boolean offerIdentityLink) {
         ((TextView) browserFrame.findViewWithTag("error_title")).setText(title);
         ((TextView) browserFrame.findViewWithTag("error_detail")).setText(detail);
+        browserFrame.findViewWithTag("error_open_identity").setVisibility(offerIdentityLink ? View.VISIBLE : View.GONE);
         View overlay = browserFrame.findViewWithTag("error_overlay");
         overlay.setVisibility(View.VISIBLE);
         overlay.bringToFront();
@@ -999,12 +1189,14 @@ public final class MainActivity extends Activity {
             cancelSwitchAnimation(); pageDragging = false;
             switchMotion.commit(selected); renderSwitchPosition(); return;
         }
-        if (popupView != null) {
-            if (popupView.canGoBack()) popupView.goBack();
-            else if (popupDialog != null) popupDialog.dismiss();
+        if (selected == TAB_TAOBAO && popupView != null) {
+            if (phoneAddView != null) closePhoneAdd(true);
+            else if (popupView.canGoBack()) popupView.goBack();
+            else closePopup();
         } else if (selected == TAB_PDD && pddPage.goBack()) {
             return;
         } else if (selected == TAB_TAOBAO && browser != null && browser.canGoBack()) {
+            if (taobaoLoadFailed) resetTaobaoLoad();
             hideError();
             browser.goBack();
         } else finish();
@@ -1017,19 +1209,25 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onPause() {
         activityResumed = false;
+        updateTaobaoDeadline();
         cancelSwitchAnimation(); pageDragging = false;
         switchMotion.commit(selected); renderSwitchPosition();
         stopShimmer();
         CookieManager.getInstance().flush();
         if (browser != null) browser.onPause();
+        if (popupView != null) popupView.onPause();
+        if (phoneAddView != null) phoneAddView.onPause();
         pddPage.pausePage();
         super.onPause();
     }
     @Override protected void onResume() {
         super.onResume();
         activityResumed = true;
+        updateTaobaoDeadline();
         if (SiteDataClearer.isBusy()) { updateLogoutControls(); return; }
         if (browser != null) browser.onResume();
+        if (popupView != null) popupView.onResume();
+        if (phoneAddView != null) phoneAddView.onResume();
         pddPage.resumePage(selected == TAB_PDD);
         if (!opened[selected]) { completeSelection(selected); return; }
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
@@ -1038,10 +1236,11 @@ public final class MainActivity extends Activity {
         SiteDataClearer.removeObserver(logoutListener);
         cancelSwitchAnimation();
         stopShimmer();
+        stopTaobaoDeadline();
         combineGeneration++;
         popupGeneration++;
         pddPage.destroyPage();
-        if (popupDialog != null) popupDialog.dismiss();
+        closePopup();
         if (browser != null) {
             browserFrame.removeView(browser);
             browser.destroy();
