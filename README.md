@@ -164,7 +164,7 @@ AndroidX WebKit 精简库随仓库提供并在构建前校验 SHA256；其来源
 
 ## 应用图标
 
-图标为方案 2「圆角底板版」：奶油色圆角底板、深红描边、角色抱快递箱。源图 `design/icon-candidates/icon-02.png`，候选与生成提示词见 [design/icon-candidates](design/icon-candidates/PROMPTS.md)。
+图标采用奶油色圆角底板、深红描边与角色抱快递箱的设计。源图位于 `design/icon-candidates/icon-02.png`。
 
 采用 Android 自适应图标：`mipmap-anydpi-v26/ic_launcher.xml` 组合背景色 `#FCF6E7` 与前景位图，前景用 `<inset>` 内缩 13%。这个比例是按「底板描边正好落在 72dp 可见视口边缘」算出来的，使深红描边贴住图标边界；背景与底板同色，遮罩裁切不会露出接缝。
 

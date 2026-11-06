@@ -2,7 +2,7 @@
 
 日期：2026-10-28（北京时间）。对应版本 0.7.5 Release（versionCode 30）。
 
-图标采用方案 2「圆角底板版」：奶油色圆角底板 + 深红描边，角色抱快递箱。源图保存在 `design/icon-candidates/icon-02.png`（1254×1254 RGBA），生成提示词见同目录 `PROMPTS.md`。
+图标采用奶油色圆角底板、深红描边与角色抱快递箱的设计。源图保存在 `design/icon-candidates/icon-02.png`（1254×1254 RGBA）。
 
 ## 一、资源组成
 
