@@ -264,6 +264,7 @@ final class JdPage extends LinearLayout {
      .putString("orders_" + PROVIDER_DY, providerOrders[PROVIDER_DY].toString())
      .apply();
    }
+   restoreSfSessionCookie();
    if (providerSignedIn[PROVIDER_JD] && !hasJdSessionCookie()) {
     providerSignedIn[PROVIDER_JD] = false;
     providerOrders[PROVIDER_JD] = new JSONArray();
@@ -340,6 +341,7 @@ final class JdPage extends LinearLayout {
 
  private void clearStaleSfCookies() {
   try {
+   getContext().getSharedPreferences(PREF_CACHE, Context.MODE_PRIVATE).edit().remove("sf_login_user").apply();
    CookieManager cm = CookieManager.getInstance();
    String url = "https://www.sf-express.com";
    cm.setCookie(url, "loginUser=; Path=/; Max-Age=0");
@@ -348,6 +350,7 @@ final class JdPage extends LinearLayout {
    cm.setCookie(url, "loginUser=; Path=/; Domain=www.sf-express.com; Secure; Max-Age=0");
    cm.setCookie(url, "loginUser=; Path=/; Domain=.sf-express.com; Max-Age=0");
    cm.setCookie(url, "loginUser=; Path=/; Domain=.sf-express.com; Secure; Max-Age=0");
+   cm.flush();
   } catch (Exception ignored) {}
  }
 
@@ -373,6 +376,11 @@ final class JdPage extends LinearLayout {
     ed.putString("orders_" + p, providerOrders[p] != null ? providerOrders[p].toString() : "[]");
    }
    ed.apply();
+   if (providerSignedIn[PROVIDER_SF]) {
+    persistSfSessionCookie();
+   } else {
+    getContext().getSharedPreferences(PREF_CACHE, Context.MODE_PRIVATE).edit().remove("sf_login_user").apply();
+   }
   } catch (Exception ignored) {}
  }
 
@@ -637,6 +645,9 @@ final class JdPage extends LinearLayout {
    } else {
     loadDyUrl(web, JdUrlPolicy.DY_ORDERS);
    }
+  } else if (provider == PROVIDER_SF) {
+   restoreSfSessionCookie();
+   web.loadUrl(entryUrl(provider));
   } else {
    web.loadUrl(entryUrl(provider));
   }
@@ -973,9 +984,54 @@ final class JdPage extends LinearLayout {
    "sessionid", "sessionid_ss", "sid_tt", "sid_guard", "sid_ucp_v1", "ssid_ucp_v1", "X-Xiaodian-Token");
  }
 
+ private String getCookieValue(String raw, String key) {
+  if (raw == null || raw.isEmpty() || key == null) return null;
+  for (String part : raw.split(";")) {
+   String kv = part.trim();
+   int eq = kv.indexOf('=');
+   if (eq <= 0) continue;
+   String k = kv.substring(0, eq).trim();
+   if (key.equals(k)) {
+    String val = kv.substring(eq + 1).trim();
+    if (!val.isEmpty() && !"null".equalsIgnoreCase(val) && !"undefined".equalsIgnoreCase(val) && !"deleted".equalsIgnoreCase(val) && !"0".equals(val)) {
+     return val;
+    }
+   }
+  }
+  return null;
+ }
+
  private boolean hasSfSessionCookie() {
   String raw = CookieManager.getInstance().getCookie("https://www.sf-express.com");
-  return hasNonEmptyCookieKey(raw, "OWFSESSION", "loginUser", "SESSION", "sessionId", "token");
+  return hasNonEmptyCookieKey(raw, "loginUser");
+ }
+
+ private void persistSfSessionCookie() {
+  try {
+   String raw = CookieManager.getInstance().getCookie("https://www.sf-express.com");
+   String val = getCookieValue(raw, "loginUser");
+   if (val != null && !val.isEmpty()) {
+    getContext().getSharedPreferences(PREF_CACHE, Context.MODE_PRIVATE)
+     .edit().putString("sf_login_user", val).apply();
+    CookieManager cm = CookieManager.getInstance();
+    cm.setCookie("https://www.sf-express.com", "loginUser=" + val + "; Path=/; Domain=.sf-express.com; Max-Age=2592000; Secure; SameSite=Lax");
+    cm.setCookie("https://www.sf-express.com", "loginUser=" + val + "; Path=/; Domain=www.sf-express.com; Max-Age=2592000; Secure; SameSite=Lax");
+    cm.flush();
+   }
+  } catch (Exception ignored) {}
+ }
+
+ private void restoreSfSessionCookie() {
+  try {
+   SharedPreferences prefs = getContext().getSharedPreferences(PREF_CACHE, Context.MODE_PRIVATE);
+   String val = prefs.getString("sf_login_user", "");
+   if (val != null && !val.isEmpty()) {
+    CookieManager cm = CookieManager.getInstance();
+    cm.setCookie("https://www.sf-express.com", "loginUser=" + val + "; Path=/; Domain=.sf-express.com; Max-Age=2592000; Secure; SameSite=Lax");
+    cm.setCookie("https://www.sf-express.com", "loginUser=" + val + "; Path=/; Domain=www.sf-express.com; Max-Age=2592000; Secure; SameSite=Lax");
+    cm.flush();
+   }
+  } catch (Exception ignored) {}
  }
 
  private String rewriteDyEcUrl(String url, int bType, int aid) {
@@ -1197,8 +1253,8 @@ final class JdPage extends LinearLayout {
      return;
     }
     if (data.optBoolean("login")) {
-     if (provider == PROVIDER_SF && hasSfSessionCookie()) {
-      return;
+     if (provider == PROVIDER_SF) {
+      clearStaleSfCookies();
      }
      providerErrors[provider] = "";
      if (provider == PROVIDER_DY) {
@@ -1256,6 +1312,7 @@ final class JdPage extends LinearLayout {
     boolean justLoggedIn = !providerSignedIn[provider] || pendingAutoSummary[provider];
     providerSignedIn[provider] = true;
     if (provider == PROVIDER_DY) dyLoginCompleted = true;
+    if (provider == PROVIDER_SF) persistSfSessionCookie();
     JSONArray rows = data.optJSONArray("orders");
     if (rows != null && (rows.length() > 0 || providerOrders[provider] == null || providerOrders[provider].length() == 0 || data.optBoolean("ready"))) {
      providerOrders[provider] = rows;

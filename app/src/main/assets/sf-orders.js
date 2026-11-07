@@ -27,6 +27,15 @@
 
  adaptSfMobile();
 
+ try {
+  var savedUser = typeof localStorage !== 'undefined' ? localStorage.getItem('hc_sf_login_user') : null;
+  if (savedUser && !/(?:^|;\s*)loginUser=/.test(document.cookie || '')) {
+   var exp = new Date(Date.now() + 30 * 24 * 3600 * 1000).toUTCString();
+   document.cookie = 'loginUser=' + encodeURIComponent(savedUser) + '; path=/; domain=.sf-express.com; expires=' + exp + '; Secure; SameSite=Lax';
+   document.cookie = 'loginUser=' + encodeURIComponent(savedUser) + '; path=/; expires=' + exp + '; Secure; SameSite=Lax';
+  }
+ } catch(ignore) {}
+
  if (!window.HandySfOrders) {
   var state = {
    captured: false,
@@ -56,7 +65,7 @@
   function hasLoginCookie() {
    try {
     var raw = document.cookie || '';
-    var m = raw.match(/(?:^|;\s*)(?:loginUser|OWFSESSION|SESSION|sessionId|token)=([^;]*)/);
+    var m = raw.match(/(?:^|;\s*)loginUser=([^;]*)/);
     if (m && m[1]) {
      var v = decodeURIComponent(m[1]).trim();
      return Boolean(v && v !== 'null' && v !== 'undefined' && v !== 'false' && v !== '""' && v !== "''" && v !== '0');
@@ -146,6 +155,14 @@
   function markFreshLogin() {
    state.loginSuccessAt = Date.now();
    try { sessionStorage.setItem('hc_sf_logged', Date.now().toString()); } catch(e) {}
+   try {
+    var raw = document.cookie || '';
+    var m = raw.match(/(?:^|;\s*)loginUser=([^;]*)/);
+    if (m && m[1]) {
+     var u = decodeURIComponent(m[1]).trim();
+     if (u && typeof localStorage !== 'undefined') localStorage.setItem('hc_sf_login_user', u);
+    }
+   } catch(e) {}
    state.authRejected = false;
    state.waybillVerified = true;
    state.captured = true;
@@ -254,6 +271,7 @@
       state.orders = [];
       state.byId = Object.create(null);
       try { sessionStorage.removeItem('hc_sf_logged'); } catch(e) {}
+      try { if (typeof localStorage !== 'undefined') localStorage.removeItem('hc_sf_login_user'); } catch(e) {}
      }
     }
     return;
@@ -378,13 +396,28 @@
      return { href: location.href, login: false, ready: true, orders: rows };
     }
 
+    var emptyBtn = document.querySelector('.empty-box-btn, [class*="empty"] button');
+    var isLoggedOutBtn = Boolean(emptyBtn && /\u767b\u5f55/.test(emptyBtn.innerText || ''));
+    var headerLogin = document.querySelector('.common-header .login, .header-wrap [class*="login"], span.login');
+    var isLoggedOutHeader = Boolean(headerLogin && /\u767b\u5f55/.test(headerLogin.innerText || ''));
+    if ((isLoggedOutBtn || isLoggedOutHeader) && !wasRecentlyLoggedIn() && !hasLoginCookie()) {
+     state.login = true;
+     return { href: location.href, login: true, ready: false, orders: [] };
+    }
+
     if (hasLoginCookie()) {
+     try {
+      var raw = document.cookie || '';
+      var m = raw.match(/(?:^|;\s*)loginUser=([^;]*)/);
+      if (m && m[1]) {
+       var u = decodeURIComponent(m[1]).trim();
+       if (u && typeof localStorage !== 'undefined') localStorage.setItem('hc_sf_login_user', u);
+      }
+     } catch(e) {}
      return { href: location.href, login: false, ready: false, orders: [] };
     }
 
-    var emptyBtn = document.querySelector('.empty-box-btn, [class*="empty"] button');
-    var isLoggedOut = Boolean(emptyBtn && /登录/.test(emptyBtn.innerText || ''));
-    if (isLoggedOut && !wasRecentlyLoggedIn()) {
+    if ((isLoggedOutBtn || isLoggedOutHeader) && !wasRecentlyLoggedIn()) {
      state.login = true;
      return { href: location.href, login: true, ready: false, orders: [] };
     }

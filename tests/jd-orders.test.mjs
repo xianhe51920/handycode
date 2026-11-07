@@ -104,6 +104,73 @@ sfSms.listeners.forEach(fn=>fn.call(sfSms));
 const sfJustLoggedIn=sf.ctx.HandySfOrders.snapshot();
 assert.equal(sfJustLoggedIn.login,false);assert.equal(sfJustLoggedIn.ready,true);
 
+// SF anonymous OWFSESSION cookie must NOT block login:true when DOM has login button
+function sfDomFixture(domButtons = [], initialCookie = 'OWFSESSION=guest_session_123; HWWAFSESID=sec_999') {
+ let cookies = initialCookie;
+ const storage = Object.create(null);
+ const localStorage = {
+  getItem(k) { return storage[k] || null; },
+  setItem(k, v) { storage[k] = String(v); },
+  removeItem(k) { delete storage[k]; }
+ };
+ function Xhr(){this.listeners=[];this.responseURL='https://www.sf-express.com/chn/sc/waybill/list';this.responseType='';this._rawResponseText='';}
+ Xhr.prototype.open=function(m,u){this.openedMethod=m;this.openedUrl=u;};
+ Xhr.prototype.send=function(){return 'ok';};
+ Xhr.prototype.addEventListener=function(t,fn){this.listeners.push(fn);};
+ const document = {
+  querySelectorAll(sel) {
+   if (sel.includes('.empty-box-btn') || sel.includes('button')) return domButtons;
+   return [];
+  },
+  querySelector(sel) {
+   if ((sel.includes('.empty-box-btn') || sel.includes('button') || sel.includes('.login')) && domButtons.length > 0) {
+    return domButtons[0];
+   }
+   return null;
+  },
+  body: { innerText: '' },
+  head: { appendChild() {} },
+  getElementById() { return null; }
+ };
+ Object.defineProperty(document, 'cookie', {
+  get() { return cookies; },
+  set(v) { cookies = cookies ? (cookies + '; ' + v) : v; }
+ });
+ const ctx = {
+  URL,
+  location: new URL('https://www.sf-express.com/chn/sc/waybill/list'),
+  document,
+  localStorage,
+  XMLHttpRequest: Xhr,
+  sessionStorage: { getItem(){return null;}, setItem(){}, removeItem(){} }
+ };
+ ctx.window = ctx; ctx.top = ctx;
+ const result = vm.runInNewContext(sfSource, ctx);
+ return { ctx, result, Xhr, localStorage };
+}
+
+// 1. Anonymous visitor with OWFSESSION and empty-box "\u767b\u5f55/\u6ce8\u518c" button MUST report login:true
+const sfGuest = sfDomFixture([{ innerText: '\u767b\u5f55/\u6ce8\u518c', tagName: 'BUTTON', classList: { contains: (c) => c === 'empty-box-btn' } }]);
+const guestSnap = sfGuest.ctx.HandySfOrders.snapshot();
+assert.equal(guestSnap.login, true, 'OWFSESSION must not cause false-positive logged-in state');
+assert.equal(guestSnap.ready, false);
+
+// 2. LocalStorage loginUser restoration across app restarts
+const sfPersisted = sfDomFixture([], '');
+sfPersisted.ctx.localStorage.setItem('hc_sf_login_user', '13912345678');
+// Re-running or initializing sfSource restores document.cookie
+vm.runInNewContext(sfSource, sfPersisted.ctx);
+assert.ok(sfPersisted.ctx.document.cookie.includes('loginUser=13912345678'), 'Saved loginUser restored to cookie');
+
+// 3. When code 121 arrives, localStorage key is deleted
+const sfRejectXhr = new sfPersisted.Xhr();
+sfRejectXhr.responseURL = 'https://www.sf-express.com/sf-service-core-web/service/waybillList/getPaginatedWaybillList';
+sfRejectXhr.send();
+sfRejectXhr.responseText = JSON.stringify({ success: false, code: 121, message: '\u7528\u6237\u672a\u767b\u5f55' });
+sfRejectXhr.listeners.forEach(fn => fn.call(sfRejectXhr));
+assert.equal(sfPersisted.ctx.localStorage.getItem('hc_sf_login_user'), null, 'code 121 removes persisted loginUser');
+assert.equal(sfPersisted.ctx.HandySfOrders.snapshot().login, true);
+
 // Douyin official web login (www.douyin.com/user/self) + QR/SMS/Profile detection
 const dyLogin=fixture('https://www.douyin.com/user/self',dySource);
 assert.equal(dyLogin.result.login,true);assert.equal(dyLogin.result.ready,false);
