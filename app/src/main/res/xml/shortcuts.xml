@@ -9,4 +9,9 @@
             <extra android:name="provider" android:value="pinduoduo"/>
         </intent>
     </shortcut>
+    <shortcut android:shortcutId="pickup" android:enabled="true" android:icon="@drawable/ic_pickup" android:shortcutShortLabel="@string/shortcut_pickup">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.fairycrane.handycode" android:targetClass="com.fairycrane.handycode.MainActivity">
+            <extra android:name="provider" android:value="pickup"/>
+        </intent>
+    </shortcut>
 </shortcuts>

@@ -2,11 +2,13 @@ package com.fairycrane.handycode;
 
 import android.content.Context;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.view.VelocityTracker;
 import android.widget.FrameLayout;
 
-/** Intercepts horizontal intent only; vertical scrolling stays in WebView. */
+/** Intercepts horizontal intent only; vertical and child-horizontal scrolling stay in child views. */
 class SwipeFrameLayout extends FrameLayout {
     interface Listener {
         boolean isSettling();
@@ -46,10 +48,28 @@ class SwipeFrameLayout extends FrameLayout {
         if (velocity != null) { velocity.recycle(); velocity = null; }
     }
 
+    private boolean canChildScrollHorizontally(View v, boolean checkV, int dx, int x, int y) {
+        if (v instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) v;
+            final int scrollX = v.getScrollX();
+            final int scrollY = v.getScrollY();
+            for (int i = group.getChildCount() - 1; i >= 0; i--) {
+                final View child = group.getChildAt(i);
+                if (child.getVisibility() != View.VISIBLE) continue;
+                final int left = child.getLeft() + (int) child.getTranslationX();
+                final int right = child.getRight() + (int) child.getTranslationX();
+                final int top = child.getTop() + (int) child.getTranslationY();
+                final int bottom = child.getBottom() + (int) child.getTranslationY();
+                if (x + scrollX >= left && x + scrollX < right && y + scrollY >= top && y + scrollY < bottom
+                        && canChildScrollHorizontally(child, true, dx, x + scrollX - left, y + scrollY - top)) {
+                    return true;
+                }
+            }
+        }
+        return checkV && v.canScrollHorizontally(-dx);
+    }
+
     @Override public void requestDisallowInterceptTouchEvent(boolean disallow) {
-        // WebView can request exclusivity on DOWN, before direction is known.
-        // Keep observing until intent is clear; preserve long-press, IME and
-        // multi-touch interactions rather than stealing their input streams.
         if (!disallow || direction == 2 || !enabled) super.requestDisallowInterceptTouchEvent(disallow);
     }
 
@@ -76,7 +96,13 @@ class SwipeFrameLayout extends FrameLayout {
         if (action == MotionEvent.ACTION_MOVE && direction == 0) {
             if (event.getEventTime() - downAt >= ViewConfiguration.getLongPressTimeout()) { direction = 2; return false; }
             float dx = event.getX() - downX, dy = event.getY() - downY;
-            direction = SwitchMotion.direction(dx, dy, slop);
+            int nextDir = SwitchMotion.direction(dx, dy, slop);
+            if (nextDir == 1 && canChildScrollHorizontally(this, false, (int) dx, (int) event.getX(), (int) event.getY())) {
+                direction = 2;
+                super.requestDisallowInterceptTouchEvent(true);
+                return false;
+            }
+            direction = nextDir;
             if (direction == 1) {
                 originX = downX + Math.signum(dx) * slop;
                 dragging = true;

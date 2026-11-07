@@ -52,7 +52,7 @@ final class PddLoadingView extends View {
     }
 
     void morphTo(float cssWidth, float identity, float parcels, float heading) {
-        if (cssWidth <= 0 || getWidth() <= 0 || identity <= 0 || parcels <= 0 || heading <= 0) return;
+        if (cssWidth <= 0 || getWidth() <= 0 || identity <= 0 || heading <= 0) return;
         stopMorph();
         final float oldScale = scale, oldIdentity = identityHeight, oldParcels = parcelsHeight, oldHeading = headingHeight;
         final float nextScale = getWidth() / cssWidth;
@@ -128,16 +128,14 @@ final class PddLoadingView extends View {
         canvas.scale(scale, scale);
         float width = getWidth() / scale;
         card(canvas, 12, width, identityHeight, firstTitle, true);
-        float parcelsTop = 26 + headingHeight + identityHeight;
-        card(canvas, parcelsTop, width, parcelsHeight, secondTitle, false);
-        float noteY = parcelsTop + headingHeight + parcelsHeight + 26;
+        float noteY = 12 + headingHeight + identityHeight + 26;
         if (noteY <= getHeight() / scale - 10) {
             paint.setShader(null);
             paint.setColor(AppTheme.muted(dark));
             paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
             paint.setTextSize(12);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("正在准备取件信息…", width / 2, noteY, paint);
+            canvas.drawText("正在准备身份码…", width / 2, noteY, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         canvas.restore();

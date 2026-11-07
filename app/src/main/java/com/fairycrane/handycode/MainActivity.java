@@ -34,8 +34,8 @@ import android.widget.TextView;
 public final class MainActivity extends Activity {
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
     private static final int TAB_TAOBAO = 0, TAB_PDD = 1, TAB_JD = 2, PAGE_COUNT = 3;
-    private static final String[] TAB_KEYS = {"taobao", "pinduoduo", "jd"};
-    private static final String[] TAB_NAMES = {"淘宝", "拼多多", "京东"};
+    private static final String[] TAB_KEYS = {"taobao", "pinduoduo", "pickup"};
+    private static final String[] TAB_NAMES = {"\u6dd8\u5b9d", "\u62fc\u591a\u591a", "\u53d6\u4ef6\u7801"};
     private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab", KEY_THEME_MODE = "theme_mode";
 
     private final android.os.Handler scanHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -108,6 +108,11 @@ public final class MainActivity extends Activity {
     private FrameLayout titleViewport;
     private final View[] titleRows = new View[PAGE_COUNT];
     private final TextView[] titleLabels = new TextView[PAGE_COUNT];
+    private ImageView pickupTitleIcon;
+    private TextView pickupSwitchBadge;
+    private int returnToPickupFromTab = -1;
+    private int clearingPickupProvider = -1;
+    private final Runnable parcelSyncWatch = this::syncExternalParcels;
     private Button themeButton;
     private Button logoutButton;
     private android.graphics.drawable.Drawable logoutIcon;
@@ -142,7 +147,13 @@ public final class MainActivity extends Activity {
             if (page == TAB_PDD) {
                 pddPage.resetSessionView();
             } else if (page == TAB_JD) {
-                jdPage.resetSessionView();
+                if (clearingPickupProvider >= JdPage.PROVIDER_JD && clearingPickupProvider <= JdPage.PROVIDER_DY) {
+                    jdPage.resetProviderSession(clearingPickupProvider);
+                } else {
+                    jdPage.resetSessionView();
+                }
+                clearingPickupProvider = -1;
+                updatePickupHeader();
             } else {
                 ++combineGeneration;
                 ++popupGeneration;
@@ -166,7 +177,7 @@ public final class MainActivity extends Activity {
         @Override public void onFinished(int page, boolean success) {
             updateLogoutControls();
             if (!success) android.widget.Toast.makeText(MainActivity.this,
-                "退出未完成，请检查 WebView 更新后重试", android.widget.Toast.LENGTH_LONG).show();
+                "\u9000\u51fa\u672a\u5b8c\u6210\uff0c\u8bf7\u68c0\u67e5 WebView \u66f4\u65b0\u540e\u91cd\u8bd5", android.widget.Toast.LENGTH_LONG).show();
             if (activityResumed && !isFinishing() && !isDestroyed()) completeSelection(selected);
         }
     };
@@ -179,15 +190,15 @@ public final class MainActivity extends Activity {
         themeMode = AppTheme.nextMode(themeMode);
         getSharedPreferences(PREF_UI, MODE_PRIVATE).edit().putInt(KEY_THEME_MODE, themeMode).apply();
         applyTheme();
-        String modeDesc = themeMode == AppTheme.MODE_SYSTEM ? "夜间模式：跟随系统"
+        String modeDesc = themeMode == AppTheme.MODE_SYSTEM ? "\u591c\u95f4\u6a21\u5f0f\uff1a\u8ddf\u968f\u7cfb\u7edf"
             : themeMode == AppTheme.MODE_DARK ? "已切换为深色模式" : "已切换为浅色模式";
         android.widget.Toast.makeText(this, modeDesc, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private String themeButtonText() {
-        if (themeMode == AppTheme.MODE_DARK) return "☾ 深色";
+        if (themeMode == AppTheme.MODE_DARK) return "\u263e \u6df1\u8272";
         if (themeMode == AppTheme.MODE_LIGHT) return "☀ 浅色";
-        return "◐ 自动";
+        return "\u25d0 \u81ea\u52a8";
     }
 
     @Override public void onConfigurationChanged(Configuration newConfig) {
@@ -270,16 +281,23 @@ public final class MainActivity extends Activity {
         if (pddPage != null) pddPage.setDark(dark);
         if (jdPage != null) jdPage.setDark(dark);
         if (bottomBar != null) bottomBar.setDark(dark);
+        updatePickupHeader();
         updateLogoutControls();
     }
 
     private void logoutCurrentPage() {
         if (!signedIn[selected] || SiteDataClearer.isBusy() || switchAnimation != null || pageDragging) return;
         if (!SiteDataClearer.isSupported()) {
-            android.widget.Toast.makeText(this, "请先更新 Android System WebView / Chrome，再退出登录",
+            android.widget.Toast.makeText(this, "\u8bf7\u5148\u66f4\u65b0 Android System WebView / Chrome\uff0c\u518d\u9000\u51fa\u767b\u5f55",
                 android.widget.Toast.LENGTH_LONG).show();
             return;
         }
+        if (selected == TAB_JD && jdPage != null && jdPage.getMode() >= JdPage.PROVIDER_JD) {
+            clearingPickupProvider = jdPage.getMode();
+            SiteDataClearer.startWithSites(TAB_JD, LogoutSites.forPickupProvider(clearingPickupProvider));
+            return;
+        }
+        clearingPickupProvider = -1;
         SiteDataClearer.start(selected);
     }
 
@@ -294,15 +312,16 @@ public final class MainActivity extends Activity {
             && switchMotion.position() == selected;
         logoutButton.setEnabled(enabled);
         logoutButton.setAlpha(!authenticated && !busy || enabled ? 1f : .45f);
-        logoutButton.setText(busy ? "退出中" : authenticated ? "退出登录" : "未登录");
+        logoutButton.setText(busy ? "\u9000\u51fa\u4e2d" : authenticated ? "\u9000\u51fa\u767b\u5f55" : "\u672a\u767b\u5f55");
         logoutButton.setTextColor(authenticated ? ink : muted);
         if (logoutIcon != null) logoutIcon.setTint(authenticated ? ink : muted);
         logoutButton.setCompoundDrawablesRelative(null, null, authenticated || busy ? logoutIcon : null, null);
         String platform = TAB_NAMES[Math.max(0, Math.min(PAGE_COUNT - 1, selected))];
-        logoutButton.setContentDescription(busy ? "正在退出" + platform + "登录"
-            : authenticated ? "退出" + platform + "登录" : platform + "未登录");
+        logoutButton.setContentDescription(busy ? "\u6b63\u5728\u9000\u51fa" + platform + "\u767b\u5f55"
+            : authenticated ? "\u9000\u51fa" + platform + "\u767b\u5f55" : platform + "\u672a\u767b\u5f55");
         for (Button tab : navigation) if (tab != null) tab.setEnabled(!busy);
-        if (viewport != null) viewport.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
+        boolean inSubWeb = selected == TAB_JD && jdPage != null && jdPage.getMode() != JdPage.MODE_SUMMARY;
+        if (viewport != null) viewport.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0 && !inSubWeb);
         if (bottomBar != null) bottomBar.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
     }
 
@@ -310,7 +329,22 @@ public final class MainActivity extends Activity {
         if (value && SiteDataClearer.isBusy()) return;
         if (page >= 0 && page < PAGE_COUNT) {
             signedIn[page] = value;
+            if (!value && jdPage != null) {
+                if (page == TAB_TAOBAO) jdPage.updateExternalParcels(JdPage.PROVIDER_TB, false, null);
+                else if (page == TAB_PDD) jdPage.updateExternalParcels(JdPage.PROVIDER_PDD, false, null);
+            }
             updateLogoutControls();
+            if (value && returnToPickupFromTab == page) {
+                returnToPickupFromTab = -1;
+                scanHandler.postDelayed(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    syncExternalParcels();
+                    selectPage(TAB_JD);
+                    if (jdPage != null) jdPage.showSummary();
+                    android.widget.Toast.makeText(this, "\u5df2\u5b8c\u6210" + TAB_NAMES[page] + "\u767b\u5f55\uff0c\u6b63\u5728\u81ea\u52a8\u62c9\u53d6\u5e76\u6c47\u603b\u53d6\u4ef6\u7801",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                }, 450);
+            }
         }
     }
 
@@ -356,6 +390,7 @@ public final class MainActivity extends Activity {
 
     private static int tabIndexForKey(String key) {
         if (key == null) return -1;
+        if ("jd".equals(key)) return TAB_JD;
         for (int i = 0; i < TAB_KEYS.length; i++) {
             if (TAB_KEYS[i].equals(key)) return i;
         }
@@ -452,7 +487,7 @@ public final class MainActivity extends Activity {
         header.setBackgroundColor(AppTheme.surface(dark));
         titleViewport = new FrameLayout(this);
         titleViewport.setClipChildren(true);
-        int[] icons = {R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_jd};
+        int[] icons = {R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_pickup};
         for (int i = 0; i < PAGE_COUNT; i++) {
             titleRows[i] = platformTitle(i, TAB_NAMES[i], icons[i]);
             titleViewport.addView(titleRows[i], new FrameLayout.LayoutParams(-1, -1));
@@ -469,7 +504,7 @@ public final class MainActivity extends Activity {
         themeLp.setMarginEnd(dp(6));
         header.addView(themeButton, themeLp);
 
-        logoutButton = button("未登录", false);
+        logoutButton = button("\u672a\u767b\u5f55", false);
         logoutButton.setTextSize(13);
         logoutButton.setBackground(new android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(0x14000000), background(Color.TRANSPARENT, 10), null));
@@ -509,7 +544,7 @@ public final class MainActivity extends Activity {
         pddPage = new PddPage(this, this::openPinduoduoIdentity, value -> setSignedIn(TAB_PDD, value));
         pinduoduoFrame.addView(pddPage, new FrameLayout.LayoutParams(-1, -1));
         viewport.addView(pinduoduoFrame, new FrameLayout.LayoutParams(-1, -1));
-        jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value));
+        jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value), this::handlePickupExternalAction, this::updatePickupHeader);
         viewport.addView(jdPage, new FrameLayout.LayoutParams(-1, -1));
 
         bottomBar = new LiquidGlassBar(this);
@@ -528,7 +563,7 @@ public final class MainActivity extends Activity {
             navigation[i].setTextColor(Color.TRANSPARENT);
             navigation[i].setStateListAnimator(null);
             navigation[i].setElevation(0);
-            navigation[i].setContentDescription("切换到" + TAB_NAMES[i]);
+            navigation[i].setContentDescription("\u5207\u6362\u5230" + TAB_NAMES[i]);
             navigation[i].setOnClickListener(v -> selectPage(page));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
             lp.setMargins(dp(2), 0, dp(2), 0);
@@ -569,7 +604,260 @@ public final class MainActivity extends Activity {
         title.setSingleLine(true);
         titleLabels[index] = title;
         row.addView(title);
+        if (index == TAB_JD) {
+            pickupTitleIcon = image;
+            TextView badge = label("\u5207\u6362\u8f6f\u4ef6 \u25be", 12, AppTheme.accentText(isDark()), true);
+            badge.setPadding(dp(8), dp(4), dp(8), dp(4));
+            badge.setBackground(background(AppTheme.subtleFill(isDark()), 10));
+            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+            badgeLp.setMarginStart(dp(8));
+            row.addView(badge, badgeLp);
+            pickupSwitchBadge = badge;
+            row.setOnClickListener(v -> {
+                if (selected == TAB_JD && !SiteDataClearer.isBusy()) showPickupSwitcherDialog();
+            });
+        }
         return row;
+    }
+
+    private void updatePickupHeader() {
+        if (pickupTitleIcon == null || titleLabels[TAB_JD] == null || pickupSwitchBadge == null || jdPage == null) return;
+        boolean dark = isDark();
+        pickupSwitchBadge.setTextColor(AppTheme.accentText(dark));
+        pickupSwitchBadge.setBackground(background(AppTheme.subtleFill(dark), 10));
+        int mode = jdPage.getMode();
+        if (mode == JdPage.PROVIDER_JD) {
+            pickupTitleIcon.setImageResource(R.drawable.ic_jd);
+            titleLabels[TAB_JD].setText("京东");
+            pickupSwitchBadge.setText("\u5207\u6362/\u6c47\u603b \u25be");
+        } else if (mode == JdPage.PROVIDER_SF) {
+            pickupTitleIcon.setImageResource(R.drawable.ic_sf);
+            titleLabels[TAB_JD].setText("顺丰");
+            pickupSwitchBadge.setText("\u5207\u6362/\u6c47\u603b \u25be");
+        } else if (mode == JdPage.PROVIDER_DY) {
+            pickupTitleIcon.setImageResource(R.drawable.ic_douyin);
+            titleLabels[TAB_JD].setText("抖音");
+            pickupSwitchBadge.setText("\u5207\u6362/\u6c47\u603b \u25be");
+        } else {
+            pickupTitleIcon.setImageResource(R.drawable.ic_pickup);
+            titleLabels[TAB_JD].setText("\u53d6\u4ef6\u7801");
+            pickupSwitchBadge.setText("\u5207\u6362\u8f6f\u4ef6 \u25be");
+        }
+        updateLogoutControls();
+    }
+
+    private void handlePickupExternalAction(int action) {
+        if (action == -1) {
+            showPickupSwitcherDialog();
+            return;
+        }
+        if (action == -2) {
+            refreshExternalParcels(TAB_TAOBAO);
+            refreshExternalParcels(TAB_PDD);
+            return;
+        }
+        if (action == JdPage.PROVIDER_TB || action == JdPage.PROVIDER_PDD) {
+            if (!signedIn[action]) {
+                returnToPickupFromTab = action;
+                selectPage(action);
+                android.widget.Toast.makeText(this, "\u8bf7\u5b8c\u6210" + TAB_NAMES[action] + "\u767b\u5f55\uff0c\u767b\u5f55\u5b8c\u540e\u5c06\u81ea\u52a8\u8fd4\u56de\u53d6\u4ef6\u7801\u6c47\u603b",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            } else {
+                refreshExternalParcels(action);
+                if (jdPage != null) jdPage.showSummary();
+                android.widget.Toast.makeText(this, "\u6b63\u5728\u540c\u6b65" + TAB_NAMES[action] + "\u53d6\u4ef6\u7801\u2026",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void showPickupSwitcherDialog() {
+        if (jdPage == null) return;
+        boolean dark = isDark();
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(18), dp(18), dp(18), dp(16));
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(AppTheme.surface(dark));
+        cardBg.setCornerRadius(dp(22));
+        cardBg.setStroke(dp(1), AppTheme.border(dark));
+        card.setBackground(cardBg);
+
+        TextView titleView = label("切换软件登录 / 取件码汇总", 17, AppTheme.ink(dark), true);
+        card.addView(titleView);
+        TextView subView = label("选择软件进行登录，登录完后自动拉取并汇总待取件码", 12, AppTheme.muted(dark), false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+        subLp.topMargin = dp(4);
+        subLp.bottomMargin = dp(12);
+        card.addView(subView, subLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        card.addView(scroll, new LinearLayout.LayoutParams(-1, -2, 1f));
+
+        int[] icons = {
+            R.drawable.ic_pickup, R.drawable.ic_taobao, R.drawable.ic_pinduoduo,
+            R.drawable.ic_jd, R.drawable.ic_sf, R.drawable.ic_douyin
+        };
+        String[] titles = {"全部取件码汇总", "淘宝 / 菜鸟", "拼多多", "京东", "顺丰速运", "抖音商城"};
+        boolean[] logged = {
+            true,
+            signedIn[TAB_TAOBAO],
+            signedIn[TAB_PDD],
+            jdPage.isSignedIn(JdPage.PROVIDER_JD),
+            jdPage.isSignedIn(JdPage.PROVIDER_SF),
+            jdPage.isSignedIn(JdPage.PROVIDER_DY)
+        };
+        int[] counts = {
+            0,
+            jdPage.countFor(JdPage.PROVIDER_TB),
+            jdPage.countFor(JdPage.PROVIDER_PDD),
+            jdPage.countFor(JdPage.PROVIDER_JD),
+            jdPage.countFor(JdPage.PROVIDER_SF),
+            jdPage.countFor(JdPage.PROVIDER_DY)
+        };
+        int currentMode = jdPage.getMode();
+
+        for (int i = 0; i < titles.length; i++) {
+            final int which = i;
+            boolean active = (i == 0 && currentMode == JdPage.MODE_SUMMARY)
+                || (i >= 3 && currentMode == i - 1);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            GradientDrawable rowBg = new GradientDrawable();
+            rowBg.setCornerRadius(dp(14));
+            rowBg.setColor(active ? (dark ? 0xff261d1c : 0xfffff3ee) : AppTheme.subtleFill(dark));
+            rowBg.setStroke(dp(1), active ? AppTheme.accent(dark) : AppTheme.border(dark));
+            row.setBackground(rowBg);
+
+            ImageView iconView = new ImageView(this);
+            iconView.setImageResource(icons[i]);
+            iconView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            iconView.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(View v, android.graphics.Outline o) {
+                    o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(7));
+                }
+            });
+            iconView.setClipToOutline(true);
+            LinearLayout.LayoutParams iconLp = size(30, 30);
+            iconLp.setMarginEnd(dp(11));
+            row.addView(iconView, iconLp);
+
+            LinearLayout textCol = new LinearLayout(this);
+            textCol.setOrientation(LinearLayout.VERTICAL);
+            TextView itemTitle = label(titles[i], 15, AppTheme.ink(dark), true);
+            itemTitle.setSingleLine(true);
+            textCol.addView(itemTitle);
+            String descText = i == 0
+                ? "自动拉取所有已登录软件的待取包裹"
+                : (logged[i] ? "已登录 · 已汇总 " + counts[i] + " 个待取件码" : "未登录 · 点击前往官方页面登录");
+            TextView itemDesc = label(descText, 11, AppTheme.muted(dark), false);
+            itemDesc.setSingleLine(true);
+            LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(-1, -2);
+            descLp.topMargin = dp(2);
+            textCol.addView(itemDesc, descLp);
+            row.addView(textCol, new LinearLayout.LayoutParams(0, -2, 1f));
+
+            String badgeStr = i == 0 ? (active ? "当前视图" : "查看汇总 ›") : (logged[i] ? "● 已登录" : "去登录 ›");
+            boolean highlightBadge = i == 0 || logged[i];
+            TextView badge = label(badgeStr, 11,
+                highlightBadge ? AppTheme.accentText(dark) : AppTheme.ink(dark), true);
+            badge.setSingleLine(true);
+            badge.setPadding(dp(9), dp(4), dp(9), dp(4));
+            GradientDrawable badgeBg = new GradientDrawable();
+            badgeBg.setCornerRadius(dp(999));
+            badgeBg.setColor(highlightBadge ? (dark ? 0x26ff784e : 0x1eeb6238) : AppTheme.surface(dark));
+            badge.setBackground(badgeBg);
+            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+            badgeLp.setMarginStart(dp(8));
+            row.addView(badge, badgeLp);
+
+            row.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (which == 0) {
+                    jdPage.showSummary();
+                    syncExternalParcels();
+                    updatePickupHeader();
+                } else if (which == 1) {
+                    handlePickupExternalAction(JdPage.PROVIDER_TB);
+                } else if (which == 2) {
+                    handlePickupExternalAction(JdPage.PROVIDER_PDD);
+                } else {
+                    jdPage.openProvider(which - 1);
+                    updatePickupHeader();
+                }
+            });
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+            if (i < titles.length - 1) rowLp.bottomMargin = dp(8);
+            list.addView(row, rowLp);
+        }
+
+        Button closeBtn = button("取消", false);
+        closeBtn.setTextSize(14);
+        closeBtn.setTextColor(AppTheme.ink(dark));
+        closeBtn.setBackground(background(AppTheme.subtleFill(dark), 12));
+        closeBtn.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(-1, dp(42));
+        closeLp.topMargin = dp(12);
+        card.addView(closeBtn, closeLp);
+
+        dialog.setContentView(card);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            int screenW = getResources().getDisplayMetrics().widthPixels;
+            w.setLayout(Math.min(screenW - dp(32), dp(380)), ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        dialog.show();
+    }
+    private void refreshExternalParcels(int tab) {
+        if (tab == TAB_TAOBAO) {
+            ensureBrowser();
+            if (browser != null && combinedDisplayed) {
+                browser.evaluateJavascript("(function(){if(typeof window.HandyCodeRefreshParcels==='function')window.HandyCodeRefreshParcels();else if(typeof window.HandyCodeRefresh==='function')window.HandyCodeRefresh();})()", null);
+            }
+        } else if (tab == TAB_PDD && pddPage != null) {
+            pddPage.refreshParcels();
+        }
+        scanHandler.postDelayed(this::syncExternalParcels, 600);
+    }
+
+    private void syncExternalParcels() {
+        scanHandler.removeCallbacks(parcelSyncWatch);
+        if (!activityResumed || jdPage == null) return;
+        if (browser != null && combinedDisplayed) {
+            browser.evaluateJavascript("(function(){return window.HandyCodeParcelsSnapshot?window.HandyCodeParcelsSnapshot():null;})()", res -> {
+                if (jdPage == null || res == null || "null".equals(res)) return;
+                try {
+                    org.json.JSONObject obj = new org.json.JSONObject(res);
+                    if (obj.optBoolean("ready")) {
+                        jdPage.updateExternalParcels(JdPage.PROVIDER_TB, true, obj.optJSONArray("orders"));
+                    }
+                } catch (org.json.JSONException ignored) {}
+            });
+        }
+        if (signedIn[TAB_PDD] && pddPage != null) {
+            pddPage.pollParcels(res -> {
+                if (jdPage == null || res == null || "null".equals(res)) return;
+                try {
+                    org.json.JSONObject obj = new org.json.JSONObject(res);
+                    if (obj.optBoolean("ready")) {
+                        jdPage.updateExternalParcels(JdPage.PROVIDER_PDD, true, obj.optJSONArray("orders"));
+                    }
+                } catch (org.json.JSONException ignored) {}
+            });
+        }
+        if (activityResumed) scanHandler.postDelayed(parcelSyncWatch, 1500);
     }
 
     private void applyKeyboardPadding(int keyboardBottom, int systemBottom) {
@@ -619,34 +907,30 @@ public final class MainActivity extends Activity {
         content.setPadding(dp(10), dp(12), dp(10), dp(76));
         content.setBackgroundColor(AppTheme.bg(dark));
         content.setClickable(true);
-        content.setContentDescription("正在准备身份码和待取包裹");
-        for (int i = 0; i < 2; i++) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackground(background(AppTheme.surface(dark), 16));
-            card.setPadding(dp(16), dp(18), dp(16), dp(18));
-            transitionCards.add(card);
-            TextView title = label(i == 0 ? "身份码" : "待取包裹", 16, AppTheme.ink(dark), true);
-            transitionTitles.add(title);
-            card.addView(title);
-            LinearLayout placeholders = new LinearLayout(this);
-            placeholders.setOrientation(LinearLayout.VERTICAL);
-            placeholders.setGravity(Gravity.CENTER);
-            for (int j = 0; j < 3; j++) {
-                ShimmerBlock block = new ShimmerBlock(this, dp(j == 1 ? 12 : 6));
-                block.setDark(dark);
-                shimmerBlocks.add(block);
-                LinearLayout.LayoutParams shape = new LinearLayout.LayoutParams(
-                    j == 1 ? -1 : dp(j == 0 ? 112 : 148), dp(j == 1 ? 64 : 12));
-                shape.setMargins(dp(6), dp(12), dp(6), dp(12));
-                placeholders.addView(block, shape);
-            }
-            card.addView(placeholders, new LinearLayout.LayoutParams(-1, 0, 1f));
-            LinearLayout.LayoutParams section = new LinearLayout.LayoutParams(-1, 0, 1f);
-            if (i == 0) section.bottomMargin = dp(14);
-            content.addView(card, section);
+        content.setContentDescription("\u6b63\u5728\u51c6\u5907\u8eab\u4efd\u7801");
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(background(AppTheme.surface(dark), 16));
+        card.setPadding(dp(16), dp(18), dp(16), dp(18));
+        transitionCards.add(card);
+        TextView title = label("\u8eab\u4efd\u7801", 16, AppTheme.ink(dark), true);
+        transitionTitles.add(title);
+        card.addView(title);
+        LinearLayout placeholders = new LinearLayout(this);
+        placeholders.setOrientation(LinearLayout.VERTICAL);
+        placeholders.setGravity(Gravity.CENTER);
+        for (int j = 0; j < 3; j++) {
+            ShimmerBlock block = new ShimmerBlock(this, dp(j == 1 ? 12 : 6));
+            block.setDark(dark);
+            shimmerBlocks.add(block);
+            LinearLayout.LayoutParams shape = new LinearLayout.LayoutParams(
+                j == 1 ? -1 : dp(j == 0 ? 112 : 148), dp(j == 1 ? 84 : 14));
+            shape.setMargins(dp(6), dp(14), dp(6), dp(14));
+            placeholders.addView(block, shape);
         }
-        TextView note = label("正在准备取件信息…", 12, AppTheme.muted(dark), false);
+        card.addView(placeholders, new LinearLayout.LayoutParams(-1, dp(240)));
+        content.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        TextView note = label("\u6b63\u5728\u51c6\u5907\u8eab\u4efd\u7801\u2026", 12, AppTheme.muted(dark), false);
         note.setGravity(Gravity.CENTER);
         note.setPadding(0, dp(12), 0, 0);
         transitionNote = note;
@@ -699,11 +983,11 @@ public final class MainActivity extends Activity {
 
     private void waitForMergedPresentation(WebView view, final int generation) {
         if (isFinishing() || isDestroyed() || generation != combineGeneration || browser != view || combinedMarkup == null) return;
-        String ready = "(function(){var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');return !!(a&&b&&a.dataset.ready==='true'&&b.dataset.ready==='true');})()";
+        String ready = "(function(){var a=document.getElementById('identity-content');return !!(a&&a.dataset.ready==='true');})()";
         view.evaluateJavascript(ready, complete -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
             if ("true".equals(complete) || android.os.SystemClock.elapsedRealtime() - transitionStarted >= 12000) hideTransition(true);
-            else view.postDelayed(() -> waitForMergedPresentation(view, generation), 200);
+            else view.postDelayed(() -> waitForMergedPresentation(view, generation), 60);
         });
     }
 
@@ -751,7 +1035,7 @@ public final class MainActivity extends Activity {
     }
 
     private void preparePreview() {
-        if (!opened[TAB_TAOBAO]) {
+        if (!opened[TAB_TAOBAO] && !combinedDisplayed) {
             transitionPanel.setVisibility(View.VISIBLE);
             transitionPanel.setAlpha(1f);
             for (ShimmerBlock block : shimmerBlocks) block.setPhase(0f);
@@ -849,7 +1133,8 @@ public final class MainActivity extends Activity {
         int nearest = Math.round(position);
         for (int i = 0; i < PAGE_COUNT; i++) {
             pages[i].setTranslationX(switchMotion.offset(i, width));
-            pages[i].setVisibility(opened[i] || (moving && width > 0 && Math.abs(i - position) <= 1.25f) || i == nearest
+            pages[i].setVisibility(opened[i] || (i == TAB_TAOBAO && browser != null)
+                || (moving && width > 0 && Math.abs(i - position) <= 1.25f) || i == nearest
                 ? View.VISIBLE : View.INVISIBLE);
             pages[i].setImportantForAccessibility(!moving && i == selected
                 ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
@@ -889,26 +1174,52 @@ public final class MainActivity extends Activity {
         }
         jdPage.resumePage(selected == TAB_JD);
         try {
+            if (titleRows[TAB_JD] != null) titleRows[TAB_JD].setClickable(selected == TAB_JD);
             if (selected == TAB_TAOBAO) {
                 pddPage.idlePage();
                 ensureBrowser();
                 opened[TAB_TAOBAO] = true;
-                if (browser != null) browser.onResume();
+                if (browser != null) {
+                    browser.onResume();
+                    if (combinedDisplayed) {
+                        waitForMergedPresentation(browser, combineGeneration);
+                    } else {
+                        waitForOfficialIdentity(browser, combineGeneration);
+                    }
+                }
                 if (transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
+                scanHandler.postDelayed(() -> {
+                    if (isFinishing() || isDestroyed() || !activityResumed) return;
+                    pddPage.showPage();
+                    if (selected != TAB_PDD) pddPage.idlePage();
+                    jdPage.warmBackground();
+                    syncExternalParcels();
+                }, 1400);
             } else if (selected == TAB_JD) {
                 stopShimmer();
+                ensureBrowser();
+                if (browser != null) browser.onResume();
+                pddPage.showPage();
                 pddPage.idlePage();
                 jdPage.showPage();
                 opened[TAB_JD] = true;
+                syncExternalParcels();
             } else {
                 stopShimmer();
                 pddPage.showPage();
                 opened[TAB_PDD] = true;
+                scanHandler.postDelayed(() -> {
+                    if (isFinishing() || isDestroyed() || !activityResumed) return;
+                    ensureBrowser();
+                    if (browser != null) browser.onResume();
+                    jdPage.warmBackground();
+                    syncExternalParcels();
+                }, 700);
             }
         } catch (RuntimeException error) {
             new AlertDialog.Builder(this).setTitle("无法启动网页组件")
-                .setMessage("请在手机系统或应用商店更新 Android System WebView / Chrome 后重试。")
-                .setPositiveButton("知道了", (d, w) -> finish()).show();
+                .setMessage("\u8bf7\u5728\u624b\u673a\u7cfb\u7edf\u6216\u5e94\u7528\u5546\u5e97\u66f4\u65b0 Android System WebView / Chrome \u540e\u91cd\u8bd5\u3002")
+                .setPositiveButton("\u77e5\u9053\u4e86", (d, w) -> finish()).show();
         }
     }
 
@@ -949,7 +1260,7 @@ public final class MainActivity extends Activity {
             showTransition();
             browser.loadUrl(UrlPolicy.TAOBAO_ENTRY);
         } catch (java.io.IOException error) {
-            loadFailure(false, "无法读取本地取件页面，请重新安装应用后重试。");
+            loadFailure(false, "\u65e0\u6cd5\u8bfb\u53d6\u672c\u5730\u53d6\u4ef6\u9875\u9762\uff0c\u8bf7\u91cd\u65b0\u5b89\u88c5\u5e94\u7528\u540e\u91cd\u8bd5\u3002");
         }
     }
 
@@ -980,8 +1291,10 @@ public final class MainActivity extends Activity {
         if (combinedMarkup == null || !sameIdentityPage(view.getUrl())) return;
         String script = officialIdentityScript + "\n(function(){if(document.getElementById('handycode-merged'))return true;"
             + "if(!(" + combinedGateScript + "))return false;"
+            + "var seed=HandyCodeOfficialIdentity.captureInitial?HandyCodeOfficialIdentity.captureInitial(document):'';"
             + "document.open();document.write(" + org.json.JSONObject.quote(combinedMarkup)
             + ");document.close();"
+            + "if(seed&&typeof window.HandyCodeSeedIdentity==='function')window.HandyCodeSeedIdentity(seed);"
             + "if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(" + isDark() + ");"
             + "return true;})()";
         view.evaluateJavascript(script, result -> {
@@ -1049,8 +1362,10 @@ public final class MainActivity extends Activity {
                 CookieManager.getInstance().flush();
                 if (popup) installPresentationObserver(view);
                 if (!popup) {
-                    installPresentationObserver(view);
-                    renderCombined(view, url);
+                    if (!combinedDisplayed) {
+                        installPresentationObserver(view);
+                        renderCombined(view, url);
+                    }
                 } else waitForPopupIdentity(view, ++popupGeneration);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
@@ -1063,14 +1378,14 @@ public final class MainActivity extends Activity {
                 }
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) loadFailure(popup, "请检查网络后重试，或稍后重新打开网页。");
+                if (request.isForMainFrame()) loadFailure(popup, "\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5\uff0c\u6216\u7a0d\u540e\u91cd\u65b0\u6253\u5f00\u7f51\u9875\u3002");
             }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
-                if (request.isForMainFrame()) loadFailure(popup, "官方页面返回 HTTP " + response.getStatusCode() + "，请稍后重试。");
+                if (request.isForMainFrame()) loadFailure(popup, "\u5b98\u65b9\u9875\u9762\u8fd4\u56de HTTP " + response.getStatusCode() + "\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
             }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
-                loadFailure(popup, "页面的安全连接验证失败。请检查手机日期、网络或稍后重试。");
+                loadFailure(popup, "\u9875\u9762\u7684\u5b89\u5168\u8fde\u63a5\u9a8c\u8bc1\u5931\u8d25\u3002\u8bf7\u68c0\u67e5\u624b\u673a\u65e5\u671f\u3001\u7f51\u7edc\u6216\u7a0d\u540e\u91cd\u8bd5\u3002");
             }
             @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
                 view.post(() -> recoverBrowser(view, popup));
@@ -1092,13 +1407,15 @@ public final class MainActivity extends Activity {
                     String phase = value.substring("__HANDYCODE_PHASE__:".length());
                     if ("login".equals(phase)) revealOfficialLogin(web);
                     else if ("loading".equals(phase) && !combinedDisplayed) showTransition();
-                    else if ("ready".equals(phase)) { showTransition(); renderCombined(web, web.getUrl()); }
+                    else if ("ready".equals(phase)) { if (!combinedDisplayed) { showTransition(); renderCombined(web, web.getUrl()); } }
                     else if ("merged".equals(phase)) {
                         combinedDisplayed = true;
                         if (isDark()) {
                             web.evaluateJavascript("if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(true);", null);
                         }
                         waitForMergedPresentation(web, combineGeneration);
+                    } else if ("parcels".equals(phase)) {
+                        syncExternalParcels();
                     }
                     return true;
                 }
@@ -1186,9 +1503,9 @@ public final class MainActivity extends Activity {
             view.evaluateJavascript(officialIdentityScript + "\nHandyCodeOfficialIdentity.recover(document,Date.now())",
                 status -> {
                     if (!popup && generation == combineGeneration && "\"login\"".equals(status)) revealOfficialLogin(view);
-                    view.postDelayed(next, 650);
+                    view.postDelayed(next, 220);
                 });
-        } else view.postDelayed(next, 650);
+        } else view.postDelayed(next, 220);
     }
 
     private void installPresentationObserver(WebView view) {
@@ -1212,7 +1529,7 @@ public final class MainActivity extends Activity {
     private void loadFailure(boolean popup, String description) {
         if (popup) {
             new AlertDialog.Builder(this).setTitle("登录网页暂时无法打开")
-                .setMessage(description).setPositiveButton("知道了", null).show();
+                .setMessage(description).setPositiveButton("\u77e5\u9053\u4e86", null).show();
         } else {
             hideTransition(false);
             showError("网页暂时无法打开", description);
@@ -1230,15 +1547,15 @@ public final class MainActivity extends Activity {
         browserFrame.removeView(view);
         view.destroy();
         browser = null;
-        showError("网页组件已停止", "点击“重新打开网页”即可恢复。");
+        showError("\u7f51\u9875\u7ec4\u4ef6\u5df2\u505c\u6b62", "\u70b9\u51fb\u201c\u91cd\u65b0\u6253\u5f00\u7f51\u9875\u201d\u5373\u53ef\u6062\u590d\u3002");
     }
 
     private void blockedNavigation() {
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastBlockedNotice < 2500) return;
         lastBlockedNotice = now;
-        new AlertDialog.Builder(this).setTitle("无法打开此链接")
-            .setMessage("此网页链接需要其他应用，或不在淘宝官方网页范围内。")
+        new AlertDialog.Builder(this).setTitle("\u65e0\u6cd5\u6253\u5f00\u6b64\u94fe\u63a5")
+            .setMessage("\u6b64\u7f51\u9875\u94fe\u63a5\u9700\u8981\u5176\u4ed6\u5e94\u7528\uff0c\u6216\u4e0d\u5728\u6dd8\u5b9d\u5b98\u65b9\u7f51\u9875\u8303\u56f4\u5185\u3002")
             .setPositiveButton("留在当前页面", null).show();
     }
 
@@ -1289,6 +1606,7 @@ public final class MainActivity extends Activity {
         activityResumed = false;
         ++scanGeneration;
         scanHandler.removeCallbacks(scanWatch);
+        scanHandler.removeCallbacks(parcelSyncWatch);
         setScanBrightness(false);
         cancelSwitchAnimation(); pageDragging = false;
         switchMotion.commit(selected); renderSwitchPosition();
@@ -1304,6 +1622,8 @@ public final class MainActivity extends Activity {
         activityResumed = true;
         scanHandler.removeCallbacks(scanWatch);
         scanHandler.post(scanWatch);
+        scanHandler.removeCallbacks(parcelSyncWatch);
+        scanHandler.postDelayed(parcelSyncWatch, 800);
         applyTheme();
         if (SiteDataClearer.isBusy()) { updateLogoutControls(); return; }
         if (browser != null) browser.onResume();
@@ -1314,6 +1634,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onDestroy() {
         scanHandler.removeCallbacks(scanWatch);
+        scanHandler.removeCallbacks(parcelSyncWatch);
         ++scanGeneration;
         setScanBrightness(false);
         SiteDataClearer.removeObserver(logoutListener);
