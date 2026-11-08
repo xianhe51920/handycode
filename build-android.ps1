@@ -100,18 +100,9 @@ Invoke-Checked $java @('-cp',$testClasses,'SwitchMotionTest')
 Invoke-Checked $java @('-cp',$testClasses,'SiteClearQueueTest')
 Invoke-Checked $java @('-cp',$testClasses,'TaobaoLoadGuardTest')
 Invoke-Checked $java @('-cp',$testClasses,'JdUrlPolicyTest')
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\jd-orders.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\scan-code-visibility.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-same-origin.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-section-refresh.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-login-client.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\pdd-layout.test.mjs'))
-Invoke-Checked 'node' @('--check',(Join-Path $sourceRoot 'assets\login-ready.js'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\login-ready.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\official-identity.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\refresh-controller.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\taobao-transition.test.mjs'))
-Invoke-Checked 'node' @((Join-Path $projectRoot 'tests\taobao-login-chrome.test.mjs'))
+foreach ($test in (Get-ChildItem -LiteralPath (Join-Path $projectRoot 'tests') -Filter '*.test.mjs' -File | Sort-Object Name)) {
+    Invoke-Checked 'node' @($test.FullName)
+}
 Write-Output '4/6 Produce DEX'
 $classFiles=@(Get-ChildItem -LiteralPath $classes -Recurse -Filter '*.class' -File | ForEach-Object {$_.FullName})
 $d8Args=@('-cp',(Join-Path $toolRoot 'lib\d8.jar'),'com.android.tools.r8.D8',

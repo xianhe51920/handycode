@@ -1,8 +1,11 @@
 package com.fairycrane.handycode;
 
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.http.SslError;
+import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
@@ -15,7 +18,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -36,6 +41,9 @@ final class PddPage extends LinearLayout {
     private final FrameLayout content;
     private final PickupLoadingView cover;
     private final Button retryBtn, clientBtn;
+    private final ScrollView loginChoice;
+    private final TextView loginNotice;
+    private final Button officialAppButton, webLoginButton;
     private long navigation;
     private boolean packageNavigation;
     private boolean pageCommitted;
@@ -43,6 +51,7 @@ final class PddPage extends LinearLayout {
     private Runnable presentationWatch;
     private float coverWidth, coverIdentity, coverParcels, coverHeading;
     private String compatibilityScript;
+    private String phoneThemeScript;
     private String loginClientScript;
     private final Runnable openClient;
     private final java.util.function.Consumer<Boolean> sessionChanged;
@@ -50,6 +59,7 @@ final class PddPage extends LinearLayout {
     private boolean destroyed;
     private volatile boolean bundleAdjusted;
     private boolean sawLogin, returnedAfterLogin;
+    private boolean webLoginAccepted;
     private boolean layoutWorkflow;
     private boolean projectionActive;
     private boolean dark;
@@ -90,11 +100,47 @@ final class PddPage extends LinearLayout {
         cover = new PickupLoadingView(context, true);
         cover.setDark(dark);
         content.addView(cover, new FrameLayout.LayoutParams(-1, -1));
+
+        loginChoice = new ScrollView(context);
+        loginChoice.setFillViewport(true);
+        loginChoice.setVerticalScrollBarEnabled(false);
+        loginChoice.setVisibility(View.GONE);
+        LinearLayout choiceContent = new LinearLayout(context);
+        choiceContent.setOrientation(VERTICAL);
+        choiceContent.setGravity(Gravity.CENTER);
+        choiceContent.setPadding(dp(24), dp(28), dp(24), dp(28));
+        loginChoice.addView(choiceContent, new ScrollView.LayoutParams(-1, -2));
+        ImageView logo = new ImageView(context);
+        logo.setImageResource(R.drawable.ic_pinduoduo);
+        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        choiceContent.addView(logo, new LinearLayout.LayoutParams(dp(80), dp(80)));
+        loginNotice = new TextView(context);
+        loginNotice.setText("网页和官方 App 登录可能互相挤下线。\n可直接使用官方 App 查看身份码。\n\n"
+            + "如需在 HandyCode 内查看取件信息，建议用小号登录。登录后在「待取包裹」点「添加手机号」，按提示验证大号的收件手机号。");
+        loginNotice.setTextSize(15);
+        loginNotice.setGravity(Gravity.CENTER);
+        loginNotice.setLineSpacing(dp(4), 1f);
+        LinearLayout.LayoutParams noticeParams = new LinearLayout.LayoutParams(-1, -2);
+        noticeParams.topMargin = dp(20);
+        choiceContent.addView(loginNotice, noticeParams);
+        officialAppButton = loginChoiceButton(choiceContent, "打开拼多多身份码", 22);
+        officialAppButton.setOnClickListener(view -> openClient.run());
+        webLoginButton = loginChoiceButton(choiceContent, "继续网页登录", 10);
+        webLoginButton.setOnClickListener(view -> {
+            webLoginAccepted = true;
+            setLoginChoiceVisible(false);
+        });
+        content.addView(loginChoice, new FrameLayout.LayoutParams(-1, -1));
         addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        setDark(dark);
         try {
-            compatibilityScript = readScript("pdd-same-origin.js") + "\n" + readScript("pdd-section-refresh.js")
-                + "\n" + readScript("pickup-motion.js") + "\n" + readScript("pdd-layout.js");
-            loginClientScript = readScript("pdd-login-client.js");
+            AssetManager assets = context.getAssets();
+            phoneThemeScript = WebAssets.readText(assets, "phone-theme.js");
+            compatibilityScript = WebAssets.readText(assets, "pdd-same-origin.js") + "\n"
+                + WebAssets.readText(assets, "pdd-section-refresh.js") + "\n"
+                + WebAssets.readText(assets, "pickup-motion.js") + "\n"
+                + WebAssets.readText(assets, "pdd-layout.js");
+            loginClientScript = WebAssets.readText(assets, "pdd-login-client.js");
         } catch (java.io.IOException unavailable) {
             actions.setVisibility(View.VISIBLE);
             status.setText("无法读取网页兼容资源，请重新安装");
@@ -109,6 +155,10 @@ final class PddPage extends LinearLayout {
         status.setTextColor(AppTheme.muted(dark));
         retryBtn.setTextColor(AppTheme.accentText(dark));
         clientBtn.setTextColor(AppTheme.accentText(dark));
+        loginChoice.setBackgroundColor(AppTheme.bg(dark));
+        loginNotice.setTextColor(AppTheme.ink(dark));
+        styleLoginChoiceButton(officialAppButton, 0xffc52226, Color.WHITE);
+        styleLoginChoiceButton(webLoginButton, AppTheme.elevated(dark), AppTheme.ink(dark));
         cover.setDark(dark);
         if (web != null) {
             web.setBackgroundColor(AppTheme.bg(dark));
@@ -147,6 +197,9 @@ final class PddPage extends LinearLayout {
             + "}"
             + "if(typeof window.HandyCodeSetDark==='function')window.HandyCodeSetDark(d);"
             + "})(" + dark + ");";
+        if (phoneThemeScript != null) {
+            script += phoneThemeScript + "\nHandyCodePhoneTheme.setDark(" + dark + ");";
+        }
         view.evaluateJavascript(script, null);
     }
 
@@ -162,13 +215,33 @@ final class PddPage extends LinearLayout {
         return button;
     }
 
-    private String readScript(String name) throws java.io.IOException {
-        try (InputStream input = getContext().getAssets().open(name)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
-            return new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+    private Button loginChoiceButton(LinearLayout parent, String text, int spacing) {
+        Button button = action(text);
+        button.setTextSize(16);
+        button.setMinimumHeight(dp(48));
+        button.setPadding(dp(12), dp(12), dp(12), dp(12));
+        button.setStateListAnimator(null);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(spacing);
+        parent.addView(button, params);
+        return button;
+    }
+
+    private void styleLoginChoiceButton(Button button, int fillColor, int textColor) {
+        GradientDrawable fill = new GradientDrawable();
+        fill.setCornerRadius(dp(8));
+        fill.setColor(fillColor);
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x26a0a0a0), fill, null));
+        button.setTextColor(textColor);
+    }
+
+    private void setLoginChoiceVisible(boolean visible) {
+        loginChoice.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (web != null) {
+            if (visible) web.clearFocus();
+            web.setImportantForAccessibility(visible ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         }
     }
 
@@ -303,7 +376,9 @@ final class PddPage extends LinearLayout {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                 final long expected = ++navigation;
                 pageCommitted = false;
-                if (UrlPolicy.isPddLoginPage(url)) sessionChanged.accept(false);
+                boolean login = UrlPolicy.isPddLoginPage(url);
+                if (login) sessionChanged.accept(false);
+                setLoginChoiceVisible(login && !webLoginAccepted);
                 showCover();
                 if (UrlPolicy.isPddAllowed(url) && "/mdkd/cellPhoneList".equals(android.net.Uri.parse(url).getPath())) {
                     cover.setOpeningPhoneManagement(true);
@@ -373,6 +448,7 @@ final class PddPage extends LinearLayout {
                     content.removeView(view);
                     view.destroy();
                     web = null;
+                    setLoginChoiceVisible(false);
                     showCover();
                     actions.setVisibility(View.VISIBLE);
                     status.setText("网页组件已停止，请点重试");
@@ -384,6 +460,7 @@ final class PddPage extends LinearLayout {
             @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
                 String value = message.message();
                 if (web != null && isPackageUrl(web.getUrl()) && "__HANDYCODE_PDD_AUTH__:signed-in".equals(value)) {
+                    webLoginAccepted = false;
                     sessionChanged.accept(true);
                     return true;
                 }
@@ -519,6 +596,8 @@ final class PddPage extends LinearLayout {
         }
         pageCommitted = packageNavigation = layoutWorkflow = false;
         sawLogin = returnedAfterLogin = bundleAdjusted = false;
+        webLoginAccepted = false;
+        setLoginChoiceVisible(false);
         actions.setVisibility(View.GONE);
         showCover();
         idlePage();

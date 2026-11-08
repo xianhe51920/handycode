@@ -22,7 +22,10 @@ function source(part,label='fixture'){
   Object.defineProperties(doc.querySelector('img'),{complete:{value:true},naturalWidth:{value:600}});
   doc.querySelector('a').addEventListener('click',()=>manageClicks++);
  }
- else {const version=++latestDetailHandler;doc.querySelector('button').addEventListener('click',()=>{detailClicks++;clickedDetailHandler=version;});}
+ else {
+  doc.querySelector('main').insertAdjacentHTML('beforeend','<div class="stations--fixture"><div class="containerWrapper--fixture"><div class="line--fixture" style="border-left:1px dashed rgb(229, 232, 236);border-left-color:rgb(229, 232, 236)"></div><div data-role="station"><div class="station--fixture"><svg><path fill="#11192D" d="M0 0h10v10H0z"></path></svg></div></div></div></div>');
+  const version=++latestDetailHandler;doc.querySelector('button').addEventListener('click',()=>{detailClicks++;clickedDetailHandler=version;});
+ }
  return doc;
 }
 for(const part of ['identity','parcels']){
@@ -93,6 +96,14 @@ assert.ok(parcels.textContent.includes('取件码 TEST-123'));
 assert.doesNotMatch(parcels.textContent,/查看地址|求助|看包裹|还有包裹未显示|好友代取/);
 assert.equal(parcels.querySelector('figure').children.length,1,'The thumbnail remains and the entire badge is removed');
 assert.ok(parcels.querySelector('figure img[alt="包裹缩略图"]'));
+const stationIcon=parcels.querySelector('[data-hc-station-icon]');
+assert.ok(stationIcon?.querySelector('svg'),'The station glyph is tagged for theme styling');
+const guide=parcels.querySelector('[style*="--hc-parcel-guide"]');
+assert.equal(guide.style.getPropertyValue('border-left-color'),'var(--hc-parcel-guide, rgb(229, 232, 236))');
+window.HandyCodeSetDark(true);
+assert.ok(stationIcon.querySelector('svg path[fill="#11192D"]'),'Theme styling keeps the official vector intact');
+window.HandyCodeSetDark(false);
+assert.equal(guide.style.getPropertyValue('border-left-color'),'var(--hc-parcel-guide, rgb(229, 232, 236))','Light mode restores the original guide color');
 assert.equal(parcels.querySelector('.hc-pickup-outgoing'),null,'Passive updates do not replay the skeleton exit');
 assert.equal(parcelButton.disabled,false);assert.equal(identity.firstElementChild,identityBefore);
 console.log('PASS: Taobao section skeleton, measured height, content transition, independent controls, stale-document guard and stable other subtree');

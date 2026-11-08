@@ -38,7 +38,7 @@ public final class PddHealthProbe extends Instrumentation {
             if(taobaoFirst){
                 Thread.sleep(1800);
                 Method select=activity.getClass().getDeclaredMethod("selectPage",int.class);select.setAccessible(true);
-                runOnMainSync(()->{try{select.invoke(activity,1);}catch(Exception e){throw new RuntimeException(e);}});
+                runOnMainSync(()->{try{select.invoke(activity,2);}catch(Exception e){throw new RuntimeException(e);}});
                 Thread.sleep(450);
             }
             Object pdd=field(activity,"pddPage");WebView web=(WebView)field(pdd,"web");View cover=(View)field(pdd,"cover");

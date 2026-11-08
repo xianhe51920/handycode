@@ -28,14 +28,15 @@ public class SiteClearQueueTest {
         SiteClearQueue.run(new String[]{}, (site, cb) -> { throw new AssertionError(); },
             () -> success[0]++, e -> failure[0]++);
         check(success[0] == 2 && failure[0] == 1);
-        String[] taobao = LogoutSites.forPage(0), pdd = LogoutSites.forPage(1);
+        String[] taobao = LogoutSites.forPage(1), pdd = LogoutSites.forPage(2);
         check(taobao.length == 5 && pdd.length == 1);
         for (String site : taobao) check(!Arrays.asList(pdd).contains(site));
         taobao[0] = "mutated.invalid";
-        check(LogoutSites.forPage(0)[0].equals("taobao.com"));
-        check(LogoutSites.forPage(1)[0].equals("pinduoduo.net"));
+        check(LogoutSites.forPage(1)[0].equals("taobao.com"));
+        check(Arrays.asList(LogoutSites.forPage(1)).contains("cainiao.com"));
+        check(LogoutSites.forPage(2)[0].equals("pinduoduo.net"));
         boolean rejected = false;
-        try { LogoutSites.forPage(3); } catch (IllegalArgumentException expected) { rejected = true; }
+        try { LogoutSites.forPage(0); } catch (IllegalArgumentException expected) { rejected = true; }
         check(rejected);
         System.out.println("Site clearing queue/policy: " + checks + " checks passed");
     }

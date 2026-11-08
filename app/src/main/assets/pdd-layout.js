@@ -523,8 +523,8 @@ html:not(.hc-pdd-source-mode) body>:not(#hc-pdd-shell):not(#hc-pdd-back):not([da
 #hc-pdd-parcels{min-height:140px;padding:10px}
 .hc-pdd-parcel-groups{display:grid;gap:clamp(18px, 6vw, 28px);padding:8px clamp(6px, 3.5vw, 14px);min-width:0}
 .hc-pdd-parcel-group{min-width:0}
-.hc-pdd-parcel-group::before{content:'';position:absolute;left:7px;top:18px;bottom:6px;border-left:1px solid #e9ecf0;pointer-events:none}
-.hc-pdd-station-heading::before{content:'';position:absolute;left:0;top:0;width:15px;height:16px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23242b37' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 7v6.5h12V7M1 6l2-3.5h10L15 6v1c-1.1 1.1-2.4 1.1-3.5 0C10.4 8.1 9.1 8.1 8 7 6.9 8.1 5.6 8.1 4.5 7 3.4 8.1 2.1 8.1 1 7z'/%3E%3C/svg%3E") center/14px no-repeat;pointer-events:none}
+.hc-pdd-parcel-group::before{content:'';position:absolute;left:7px;top:18px;bottom:6px;border-left:1px solid var(--hc-parcel-guide,#e9ecf0);pointer-events:none}
+.hc-pdd-station-heading::before{content:'';position:absolute;left:0;top:0;width:15px;height:16px;background-color:var(--hc-station-ink,#242b37);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 7v6.5h12V7M1 6l2-3.5h10L15 6v1c-1.1 1.1-2.4 1.1-3.5 0C10.4 8.1 9.1 8.1 8 7 6.9 8.1 5.6 8.1 4.5 7 3.4 8.1 2.1 8.1 1 7z'/%3E%3C/svg%3E") center/14px no-repeat;pointer-events:none}
 .hc-pdd-content[data-ready] > div{opacity:1}
 .hc-pdd-code{display:flex;flex-direction:column;align-items:center;gap:7px;padding:2px 8px}
 .hc-pdd-phone{font-size:14px!important;text-align:center!important}
@@ -547,7 +547,7 @@ html:not(.hc-pdd-source-mode) body>:not(#hc-pdd-shell):not(#hc-pdd-back):not([da
 #hc-pdd-back button{background:none;border:0;color:#536071;font:14px system-ui,sans-serif}
 html[data-hc-theme="dark"],html[data-hc-theme="dark"] body,html[data-hc-theme="dark"] #hc-pdd-shell{background:#0f1218!important;background-color:#0f1218!important;color-scheme:dark}
 html[data-hc-theme="dark"] #hc-pdd-shell{color:#e6eaf2}
-html[data-hc-theme="dark"] .hc-pdd-card{--hc-card-surface:#181c24;background:#181c24;border-color:#262c36}
+html[data-hc-theme="dark"] .hc-pdd-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-ink:#b3b3b3;background:#181c24;border-color:#262c36}
 html[data-hc-theme="dark"] .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
 html[data-hc-theme="dark"] .hc-pdd-heading button,html[data-hc-theme="dark"] #hc-pdd-back button{color:#ff855e}
 html[data-hc-theme="dark"] .hc-pdd-barcode,html[data-hc-theme="dark"] .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
@@ -558,7 +558,7 @@ html[data-hc-theme="dark"] #hc-pdd-back{background:#181c24;border-bottom-color:#
 @media(prefers-color-scheme:dark){
 html:not([data-hc-theme="light"]),html:not([data-hc-theme="light"]) body,html:not([data-hc-theme="light"]) #hc-pdd-shell,html:not([data-hc-theme="light"]).hc-pdd-source-mode [data-hc-pdd-source],html:not([data-hc-theme="light"]).hc-pdd-source-mode [data-hc-pdd-source] [class*="container"]{background:#0f1218!important;background-color:#0f1218!important;color-scheme:dark}
 html:not([data-hc-theme="light"]) #hc-pdd-shell{color:#e6eaf2}
-html:not([data-hc-theme="light"]) .hc-pdd-card{--hc-card-surface:#181c24;background:#181c24;border-color:#262c36}
+html:not([data-hc-theme="light"]) .hc-pdd-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-ink:#b3b3b3;background:#181c24;border-color:#262c36}
 html:not([data-hc-theme="light"]) .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
 html:not([data-hc-theme="light"]) .hc-pdd-heading button,html:not([data-hc-theme="light"]) #hc-pdd-back button{color:#ff855e}
 html:not([data-hc-theme="light"]) .hc-pdd-barcode,html:not([data-hc-theme="light"]) .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}

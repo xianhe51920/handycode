@@ -6,4 +6,6 @@
     <instrumentation android:name="com.fairycrane.handycode.tests.LoginProbe" android:targetPackage="com.fairycrane.handycode" android:functionalTest="true" />
     <instrumentation android:name="com.fairycrane.handycode.tests.TaobaoLoginProbe" android:targetPackage="com.fairycrane.handycode" android:functionalTest="true" />
     <instrumentation android:name="com.fairycrane.handycode.tests.PddHealthProbe" android:targetPackage="com.fairycrane.handycode" android:functionalTest="true" />
+    <instrumentation android:name="com.fairycrane.handycode.tests.JdLayoutProbe" android:targetPackage="com.fairycrane.handycode" android:functionalTest="true" />
+    <instrumentation android:name="com.fairycrane.handycode.tests.JdEmptyStateProbe" android:targetPackage="com.fairycrane.handycode" android:functionalTest="true" />
 </manifest>

@@ -70,8 +70,17 @@
   }
   window.HandyJdOrders={snapshot:function(){
    var login=/(^|\.)plogin\.m\.jd\.com$/i.test(location.hostname)||/\/login(?:\/|$)/i.test(location.pathname);
+   var problem='',empty=false;
+   var notice=!login&&document.querySelector('[class*="index-module__errorCon"]');
+   if(notice&&notice.getClientRects().length){
+    var message=(notice.innerText||'').slice(0,500).replace(/\s/g,'');
+    empty=/(?:暂无|还没有|没有|未找到|暂未查询到)(?:符合条件的|相关的?|任何)?(?:订单|包裹)|(?:订单|包裹)空空如也/.test(message)
+     && !/异常|失败|繁忙|通道|重试|再试/.test(message);
+    if(!empty&&/大促异常火爆|快速通道|服务繁忙/.test(message))problem='busy';
+    else if(!empty&&/异常|失败|出错|错误|无法加载|重新加载|重试|再试/.test(message))problem='unavailable';
+   }
    var rows=state.captured?state.orders:domOrders();
-   return {href:location.href,login:login,ready:!login&&(state.captured||rows.length>0),orders:login?[]:rows};
+   return {href:location.href,login:login,problem:problem,ready:!login&&!problem&&(state.captured||rows.length>0||empty),orders:login||problem||empty?[]:rows};
   }};
  }
  return window.HandyJdOrders.snapshot();

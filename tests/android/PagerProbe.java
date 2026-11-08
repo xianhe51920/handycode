@@ -107,7 +107,7 @@ public final class PagerProbe extends Instrumentation {
             activity = startActivitySync(launch); Thread.sleep(700); guard();
             int[] buttons={0};runOnMainSync(()->buttons[0]=buttonCount(activity.getWindow().getDecorView()));
             check(buttons[0]==1,"Exactly one shared logout button");
-            select(1);
+            select(2);
             Object pdd = field(activity,"pddPage"); WebView web = (WebView)field(pdd,"web");
             boolean ready=false;
             for(int i=0;i<60;i++) {
@@ -119,15 +119,15 @@ public final class PagerProbe extends Instrumentation {
             long navigation=(Long)field(pdd,"navigation");
             eval(web,"window.__hcRetainProbe=[document.getElementById('hc-pdd-identity').firstElementChild,document.getElementById('hc-pdd-parcels').firstElementChild];true");
             for(int round=0;round<3;round++) {
-                select(0); peek();
+                select(1); peek();
                 SwitchMotion motion=(SwitchMotion)field(activity,"switchMotion");
-                check(motion.position()>.2f&&motion.position()<.5f,"Held partial swipe");
+                check(motion.position()>1.2f&&motion.position()<1.5f,"Held partial swipe");
                 check(web==field(pdd,"web"),"Same PDD WebView retained");
                 check(navigation==(Long)field(pdd,"navigation"),"No tab-triggered navigation");
                 check("true".equals(eval(web,"(function(){var a=document.getElementById('hc-pdd-identity'),b=document.getElementById('hc-pdd-parcels');return !!(a.firstElementChild===window.__hcRetainProbe[0]&&b.firstElementChild===window.__hcRetainProbe[1]&&getComputedStyle(a.firstElementChild).opacity==='1'&&getComputedStyle(b.firstElementChild).opacity==='1')})()")),"Retained nodes remain opaque during peek");
                 checkPreviewPixels();
                 touch(MotionEvent.ACTION_CANCEL,endX); holding=false; Thread.sleep(400);
-                select(1);
+                select(2);
                 Button logout=(Button)field(activity,"logoutButton");
                 check("退出拼多多登录".contentEquals(logout.getContentDescription()),"Logout follows settled platform");
             }

@@ -17,6 +17,7 @@ final class PickupLoadingView extends View {
     static final int REVEAL_DURATION = 260;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final boolean pdd;
+    private final boolean identityOnly;
     private float scale, identityHeight, parcelsHeight, headingHeight;
     private ValueAnimator morph;
     private boolean animating;
@@ -25,12 +26,17 @@ final class PickupLoadingView extends View {
     private long animationStarted;
 
     PickupLoadingView(Context context, boolean pdd) {
+        this(context, pdd, false);
+    }
+
+    PickupLoadingView(Context context, boolean pdd, boolean identityOnly) {
         super(context);
         this.pdd = pdd;
+        this.identityOnly = identityOnly;
         resetGeometry();
         setBackgroundColor(0xfff5f6f8);
         setClickable(true);
-        setContentDescription("正在准备身份码和待取包裹");
+        setContentDescription(identityOnly ? "正在准备身份码" : "正在准备身份码和待取包裹");
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
 
@@ -154,17 +160,17 @@ final class PickupLoadingView extends View {
         }
         card(canvas, 12, width, identityHeight, "身份码", true);
         float parcelsTop = 28 + headingHeight + identityHeight;
-        card(canvas, parcelsTop, width, parcelsHeight, "待取包裹", false);
+        if (!identityOnly) card(canvas, parcelsTop, width, parcelsHeight, "待取包裹", false);
         // Mirrors the Taobao first-load note so both tabs explain the wait.
         // Drawn only when the cards leave room, so it never covers content.
-        float noteY = parcelsTop + headingHeight + parcelsHeight + 26;
+        float noteY = identityOnly ? parcelsTop + 10 : parcelsTop + headingHeight + parcelsHeight + 26;
         if (noteY <= getHeight() / scale - 10) {
             paint.setShader(null);
             paint.setColor(AppTheme.muted(dark));
             paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
             paint.setTextSize(12);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("正在准备取件信息…", width / 2, noteY, paint);
+            canvas.drawText(identityOnly ? "正在准备身份码…" : "正在准备取件信息…", width / 2, noteY, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         canvas.restore();

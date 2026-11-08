@@ -9,11 +9,12 @@
 *{box-sizing:border-box}body{margin:0;padding:12px 10px 24px;background:#f5f6f8;color:#242b37;font:14px/1.5 system-ui,sans-serif;transition:background-color .2s,color .2s}
 .hc-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff;transition:background-color .2s,border-color .2s}
 .hc-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #f0f2f5}
-.hc-heading h2{margin:0;font-size:16px;font-weight:650}.hc-actions{display:flex;gap:12px;flex-shrink:0}
+.hc-heading h2{margin:0;font-size:16px;font-weight:650}.hc-actions{display:flex;align-items:center;gap:12px;flex-shrink:0}
 .hc-actions button,.hc-actions a{padding:5px 0;color:#536071;background:none;border:0;font:inherit;font-size:12px;text-decoration:none}
 .hc-actions button:disabled{color:#8a929f}
 .hc-content{position:relative;padding:10px;overflow:visible;min-width:0}.hc-loading{padding:28px 8px;color:#89919d;text-align:center;font-size:12px}
-.hc-actions [data-phone-manage]:not([hidden]) + button{border-left:1px solid #e1e5eb;padding-left:8px}
+.hc-actions [data-phone-manage]:not([hidden]) + button{position:relative}
+.hc-actions [data-phone-manage]:not([hidden]) + button::before{content:'';position:absolute;left:-6px;top:50%;height:10px;border-left:1px solid #e1e5eb;transform:translateY(-50%)}
 .hc-section-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:8px;overflow:hidden}
 .hc-section-placeholder i{display:block;position:relative;width:68%;height:14px;border-radius:7px;background:#edf0f4;overflow:hidden}
 .hc-section-placeholder i:nth-child(2){width:100%;height:72px}
@@ -22,17 +23,18 @@
 .hc-section-placeholder[data-part="identity"] i:last-child{display:none}
 .hc-section-placeholder[data-part="parcels"] i:nth-child(2){width:50%;height:44px}
 html[data-hc-theme="dark"] body{background:#0f1218;color:#e6eaf2}
-html[data-hc-theme="dark"] .hc-card{--hc-card-surface:#181c24;background:#181c24;border-color:#262c36}
+html[data-hc-theme="dark"] .hc-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-filter:brightness(0) invert(.7);background:#181c24;border-color:#262c36}
 html[data-hc-theme="dark"] .hc-heading{border-bottom-color:#232833;color:#e6eaf2}
 html[data-hc-theme="dark"] .hc-actions button,html[data-hc-theme="dark"] .hc-actions a{color:#ff855e}
 html[data-hc-theme="dark"] .hc-actions button:disabled{color:#636c7e}
 html[data-hc-theme="dark"] .hc-loading{color:#8e98aa}
 html[data-hc-theme="dark"] [data-hc-barcode]{background:#fff!important}
+#parcels-content [data-hc-station-icon] svg{filter:var(--hc-station-filter,none)}
 html[data-hc-theme="dark"] .hc-section-placeholder i{background:#232936}
 html[data-hc-theme="dark"] .hc-section-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
 @media(prefers-color-scheme:dark){
 html:not([data-hc-theme="light"]) body{background:#0f1218;color:#e6eaf2}
-html:not([data-hc-theme="light"]) .hc-card{--hc-card-surface:#181c24;background:#181c24;border-color:#262c36}
+html:not([data-hc-theme="light"]) .hc-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-filter:brightness(0) invert(.7);background:#181c24;border-color:#262c36}
 html:not([data-hc-theme="light"]) .hc-heading{border-bottom-color:#232833;color:#e6eaf2}
 html:not([data-hc-theme="light"]) .hc-actions button,html:not([data-hc-theme="light"]) .hc-actions a{color:#ff855e}
 html:not([data-hc-theme="light"]) .hc-actions button:disabled{color:#636c7e}
@@ -172,6 +174,10 @@ function clone(source,doc,budget,skip,parcel){
  }
  if(parcel&&css.color==='rgb(124, 136, 156)'){
   copy.style.setProperty('color','#5f6878','important');
+ }
+ if(parcel&&source.matches('[data-role="station"] [class^="station--"]'))copy.setAttribute('data-hc-station-icon','');
+ if(parcel&&source.matches('[class^="stations--"] [class^="containerWrapper--"] > [class^="line--"]')){
+  copy.style.setProperty('border-left-color','var(--hc-parcel-guide, '+css.getPropertyValue('border-left-color')+')','important');
  }
  if(!parcel){
   copy.style.setProperty('box-sizing','border-box','important');

@@ -20,7 +20,7 @@ cd <项目目录>
 ```powershell
 $adb = Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'
 & $adb connect '<手机IP>:<连接端口>'
-& $adb -s '<手机IP>:<连接端口>' install -r '.\HandyCode-0.7.8-release.apk'
+& $adb -s '<手机IP>:<连接端口>' install -r '.\HandyCode-0.8.0-release.apk'
 ```
 
 配对会授权此电脑调试手机；测试完可关闭无线调试或移除已配对电脑。不要提交配对码、设备地址、截图中的账号或身份码。

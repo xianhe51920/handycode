@@ -14,8 +14,6 @@
 | `mipmap-anydpi-v26/ic_launcher.xml` | 自适应图标入口，组合上面两层 |
 | `AndroidManifest.xml` | `android:icon` 与 `android:roundIcon` 均指向 `@mipmap/ic_launcher` |
 
-`drawable/ic_launcher.xml` 保留为位图兜底，不再被清单引用。
-
 ## 二、自适应图标的尺寸模型
 
 Android 8.0（API 26）起，桌面图标由两层 108×108dp 图层合成，系统再套用自己的遮罩：
