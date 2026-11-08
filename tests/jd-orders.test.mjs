@@ -105,7 +105,7 @@ const sfJustLoggedIn=sf.ctx.HandySfOrders.snapshot();
 assert.equal(sfJustLoggedIn.login,false);assert.equal(sfJustLoggedIn.ready,true);
 
 // SF anonymous OWFSESSION cookie must NOT block login:true when DOM has login button
-function sfDomFixture(domButtons = [], initialCookie = 'OWFSESSION=guest_session_123; HWWAFSESID=sec_999') {
+function sfDomFixture(domButtons = [], initialCookie = 'OWFSESSION=guest_session_123; HWWAFSESID=sec_999', fetchFn = null) {
  let cookies = initialCookie;
  const storage = Object.create(null);
  const localStorage = {
@@ -144,6 +144,7 @@ function sfDomFixture(domButtons = [], initialCookie = 'OWFSESSION=guest_session
   XMLHttpRequest: Xhr,
   sessionStorage: { getItem(){return null;}, setItem(){}, removeItem(){} }
  };
+ if (fetchFn) ctx.fetch = fetchFn;
  ctx.window = ctx; ctx.top = ctx;
  const result = vm.runInNewContext(sfSource, ctx);
  return { ctx, result, Xhr, localStorage };
@@ -170,6 +171,23 @@ sfRejectXhr.responseText = JSON.stringify({ success: false, code: 121, message: 
 sfRejectXhr.listeners.forEach(fn => fn.call(sfRejectXhr));
 assert.equal(sfPersisted.ctx.localStorage.getItem('hc_sf_login_user'), null, 'code 121 removes persisted loginUser');
 assert.equal(sfPersisted.ctx.HandySfOrders.snapshot().login, true);
+
+// 4. When remember-me cookie is present, code 121 attempts autoLogin and preserves session
+let autoLoginCalled = false;
+const mockFetch = function(url, opts) {
+ if (url.includes('autoLogin')) {
+  autoLoginCalled = true;
+  assert.equal(opts.method, 'POST');
+  assert.ok(opts.headers.appId === 'huJk1ARWMV5C');
+  assert.ok(opts.headers.sign && opts.headers.sign.length === 32);
+  return Promise.resolve({
+   json: () => Promise.resolve({ success: true, code: 0, result: { id: 'u1' } })
+  });
+ }
+ return Promise.reject(new Error('Unknown url: ' + url));
+};
+const sfAuto = sfDomFixture([], 'remember-me=persistent_token_123; loginUser=13912345678', mockFetch);
+assert.ok(autoLoginCalled, 'autoLogin was proactively attempted on load with remember-me');
 
 // Douyin official web login (www.douyin.com/user/self) + QR/SMS/Profile detection
 const dyLogin=fixture('https://www.douyin.com/user/self',dySource);

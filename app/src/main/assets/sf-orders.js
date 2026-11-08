@@ -62,6 +62,231 @@
    return state.loginSuccessAt > 0 && (Date.now() - state.loginSuccessAt < 60000);
   }
 
+  function getSavedUser() {
+   try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem('hc_sf_login_user') : null;
+   } catch(e) { return null; }
+  }
+
+  function hasRememberMe() {
+   try {
+    var raw = document.cookie || '';
+    return /(?:^|;\s*)remember-me=/.test(raw);
+   } catch(e) { return false; }
+  }
+
+  var autoLoginState = {
+   inFlight: false,
+   attempted: 0,
+   lastAttemptAt: 0
+  };
+
+  function md5(string) {
+   function rotateLeft(lValue, iShiftBits) {
+    return (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
+   }
+   function addUnsigned(lX, lY) {
+    var lX4 = lX & 0x40000000, lY4 = lX & 0x40000000;
+    var lX8 = lX & 0x80000000, lY8 = lY & 0x80000000;
+    var lResult = (lX & 0x3fffffff) + (lY & 0x3fffffff);
+    if (lX4 & lY4) return lResult ^ 0x80000000 ^ lX8 ^ lY8;
+    if (lX4 | lY4) return (lResult & 0x40000000) ? (lResult ^ 0xc0000000 ^ lX8 ^ lY8) : (lResult ^ 0x40000000 ^ lX8 ^ lY8);
+    return lResult ^ lX8 ^ lY8;
+   }
+   function F(x, y, z) { return (x & y) | (~x & z); }
+   function G(x, y, z) { return (x & z) | (y & ~z); }
+   function H(x, y, z) { return x ^ y ^ z; }
+   function I(x, y, z) { return y ^ (x | ~z); }
+   function FF(a, b, c, d, x, s, ac) {
+    a = addUnsigned(a, addUnsigned(addUnsigned(F(b, c, d), x), ac));
+    return addUnsigned(rotateLeft(a, s), b);
+   }
+   function GG(a, b, c, d, x, s, ac) {
+    a = addUnsigned(a, addUnsigned(addUnsigned(G(b, c, d), x), ac));
+    return addUnsigned(rotateLeft(a, s), b);
+   }
+   function HH(a, b, c, d, x, s, ac) {
+    a = addUnsigned(a, addUnsigned(addUnsigned(H(b, c, d), x), ac));
+    return addUnsigned(rotateLeft(a, s), b);
+   }
+   function II(a, b, c, d, x, s, ac) {
+    a = addUnsigned(a, addUnsigned(addUnsigned(I(b, c, d), x), ac));
+    return addUnsigned(rotateLeft(a, s), b);
+   }
+   function convertToWordArray(str) {
+    var len = str.length;
+    var words = Array(((len + 8 - ((len + 8) % 64)) / 64 + 1) * 16);
+    for (var i = 0; i < words.length; i++) words[i] = 0;
+    for (var j = 0; j < len; j++) words[j >> 2] |= (str.charCodeAt(j) & 0xff) << ((j % 4) * 8);
+    words[len >> 2] |= 0x80 << ((len % 4) * 8);
+    words[words.length - 2] = len << 3;
+    words[words.length - 1] = len >>> 29;
+    return words;
+   }
+   function wordToHex(lValue) {
+    var str = '';
+    for (var i = 0; i <= 3; i++) {
+     var b = (lValue >>> (i * 8)) & 255;
+     str += (b < 16 ? '0' : '') + b.toString(16);
+    }
+    return str;
+   }
+   var x = convertToWordArray(string);
+   var a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
+   var S11 = 7, S12 = 12, S13 = 17, S14 = 22;
+   var S21 = 5, S22 = 9, S23 = 14, S24 = 20;
+   var S31 = 4, S32 = 11, S33 = 16, S34 = 23;
+   var S41 = 6, S42 = 10, S43 = 15, S44 = 21;
+   for (var k = 0; k < x.length; k += 16) {
+    var AA = a, BB = b, CC = c, DD = d;
+    a = FF(a, b, c, d, x[k + 0], S11, 0xd76aa478);
+    d = FF(d, a, b, c, x[k + 1], S12, 0xe8c7b756);
+    c = FF(c, d, a, b, x[k + 2], S13, 0x242070db);
+    b = FF(b, c, d, a, x[k + 3], S14, 0xc1bdceee);
+    a = FF(a, b, c, d, x[k + 4], S11, 0xf57c0faf);
+    d = FF(d, a, b, c, x[k + 5], S12, 0x4787c62a);
+    c = FF(c, d, a, b, x[k + 6], S13, 0xa8304613);
+    b = FF(b, c, d, a, x[k + 7], S14, 0xfd469501);
+    a = FF(a, b, c, d, x[k + 8], S11, 0x698098d8);
+    d = FF(d, a, b, c, x[k + 9], S12, 0x8b44f7af);
+    c = FF(c, d, a, b, x[k + 10], S13, 0xffff5bb1);
+    b = FF(b, c, d, a, x[k + 11], S14, 0x895cd7be);
+    a = FF(a, b, c, d, x[k + 12], S11, 0x6b901122);
+    d = FF(d, a, b, c, x[k + 13], S12, 0xfd987193);
+    c = FF(c, d, a, b, x[k + 14], S13, 0xa679438e);
+    b = FF(b, c, d, a, x[k + 15], S14, 0x49b40821);
+    a = GG(a, b, c, d, x[k + 1], S21, 0xf61e2562);
+    d = GG(d, a, b, c, x[k + 6], S22, 0xc040b340);
+    c = GG(c, d, a, b, x[k + 11], S23, 0x265e5a51);
+    b = GG(b, c, d, a, x[k + 0], S24, 0xe9b6c7aa);
+    a = GG(a, b, c, d, x[k + 5], S21, 0xd62f105d);
+    d = GG(d, a, b, c, x[k + 10], S22, 0x2441453);
+    c = GG(c, d, a, b, x[k + 15], S23, 0xd8a1e681);
+    b = GG(b, c, d, a, x[k + 4], S24, 0xe7d3fbc8);
+    a = GG(a, b, c, d, x[k + 9], S21, 0x21e1cde6);
+    d = GG(d, a, b, c, x[k + 14], S22, 0xc33707d6);
+    c = GG(c, d, a, b, x[k + 3], S23, 0xf4d50d87);
+    b = GG(b, c, d, a, x[k + 8], S24, 0x455a14ed);
+    a = GG(a, b, c, d, x[k + 13], S21, 0xa9e3e905);
+    d = GG(d, a, b, c, x[k + 2], S22, 0xfcefa3f8);
+    c = GG(c, d, a, b, x[k + 7], S23, 0x676f02d9);
+    b = GG(b, c, d, a, x[k + 12], S24, 0x8d2a4c8a);
+    a = HH(a, b, c, d, x[k + 5], S31, 0xfffa3942);
+    d = HH(d, a, b, c, x[k + 8], S32, 0x8771f681);
+    c = HH(c, d, a, b, x[k + 11], S33, 0x6d9d6122);
+    b = HH(b, c, d, a, x[k + 14], S34, 0xfde5380c);
+    a = HH(a, b, c, d, x[k + 1], S31, 0xa4beea44);
+    d = HH(d, a, b, c, x[k + 4], S32, 0x4bdecfa9);
+    c = HH(c, d, a, b, x[k + 7], S33, 0xf6bb4b60);
+    b = HH(b, c, d, a, x[k + 10], S34, 0xbebfbc70);
+    a = HH(a, b, c, d, x[k + 13], S31, 0x289b7ec6);
+    d = HH(d, a, b, c, x[k + 0], S32, 0xeaa127fa);
+    c = HH(c, d, a, b, x[k + 3], S33, 0xd4ef3085);
+    b = HH(b, c, d, a, x[k + 6], S34, 0x4881d05);
+    a = HH(a, b, c, d, x[k + 9], S31, 0xd9d4d039);
+    d = HH(d, a, b, c, x[k + 12], S32, 0xe6db99e5);
+    c = HH(c, d, a, b, x[k + 15], S33, 0x1fa27cf8);
+    b = HH(b, c, d, a, x[k + 2], S34, 0xc4ac5665);
+    a = II(a, b, c, d, x[k + 0], S41, 0xf4292244);
+    d = II(d, a, b, c, x[k + 7], S42, 0x432aff97);
+    c = II(c, d, a, b, x[k + 14], S43, 0xab9423a7);
+    b = II(b, c, d, a, x[k + 5], S44, 0xfc93a039);
+    a = II(a, b, c, d, x[k + 12], S41, 0x655b59c3);
+    d = II(d, a, b, c, x[k + 3], S42, 0x8f0ccc92);
+    c = II(c, d, a, b, x[k + 10], S43, 0xffeff47d);
+    b = II(b, c, d, a, x[k + 1], S44, 0x85845dd1);
+    a = II(a, b, c, d, x[k + 8], S41, 0x6fa87e4f);
+    d = II(d, a, b, c, x[k + 15], S42, 0xfe2ce6e0);
+    c = II(c, d, a, b, x[k + 6], S43, 0xa3014314);
+    b = II(b, c, d, a, x[k + 13], S44, 0x4e0811a1);
+    a = II(a, b, c, d, x[k + 4], S41, 0xf7537e82);
+    d = II(d, a, b, c, x[k + 11], S42, 0xbd3af235);
+    c = II(c, d, a, b, x[k + 2], S43, 0x2ad7d2bb);
+    b = II(b, c, d, a, x[k + 9], S44, 0xeb86d391);
+    a = addUnsigned(a, AA);
+    b = addUnsigned(b, BB);
+    c = addUnsigned(c, CC);
+    d = addUnsigned(d, DD);
+   }
+   return (wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d)).toLowerCase();
+  }
+
+  function triggerWaybillRefresh() {
+   try {
+    if (window['$nuxt'] && typeof window['$nuxt'].refresh === 'function') {
+     window['$nuxt'].refresh();
+     return;
+    }
+   } catch(e) {}
+   try {
+    autoSwitchToReceiveTab();
+   } catch(e) {}
+  }
+
+  function trySfAutoLogin(onComplete) {
+   if (autoLoginState.inFlight) {
+    if (typeof onComplete === 'function') onComplete(false);
+    return;
+   }
+   var now = Date.now();
+   if (now - autoLoginState.lastAttemptAt < 3000) {
+    if (typeof onComplete === 'function') onComplete(false);
+    return;
+   }
+   autoLoginState.inFlight = true;
+   autoLoginState.attempted++;
+   autoLoginState.lastAttemptAt = now;
+
+   try {
+    var appId = 'huJk1ARWMV5C';
+    var appSecret = '9b1d6e3ec6b4ec82635f32799d680fe1';
+    var chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    var nonce = '';
+    for (var i = 0; i < 6; i++) {
+     nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    var timestamp = Date.now();
+    var signStr = 'appId=' + appId + '&appSecret=' + appSecret + '&nonce=' + nonce + '&timestamp=' + timestamp;
+    var sign = md5(signStr);
+
+    var fetchFn = window.fetchOriginal || window.fetch;
+    if (typeof fetchFn !== 'function') {
+     autoLoginState.inFlight = false;
+     if (typeof onComplete === 'function') onComplete(false);
+     return;
+    }
+
+    fetchFn('/sf-service-core-web/service/user/autoLogin', {
+     method: 'POST',
+     headers: {
+      'Accept': 'application/json, text/plain, */*',
+      'Content-Type': 'application/json;charset=UTF-8',
+      'appId': appId,
+      'nonce': nonce,
+      'timestamp': String(timestamp),
+      'sign': sign
+     },
+     credentials: 'include'
+    }).then(function(res) {
+     return res.json();
+    }).then(function(data) {
+     autoLoginState.inFlight = false;
+     if (data && (data.code === 0 || data.code === '0') && String(data.result) !== '2') {
+      markFreshLogin();
+      triggerWaybillRefresh();
+      if (typeof onComplete === 'function') onComplete(true);
+     } else {
+      if (typeof onComplete === 'function') onComplete(false);
+     }
+    }).catch(function() {
+     autoLoginState.inFlight = false;
+     if (typeof onComplete === 'function') onComplete(false);
+    });
+   } catch(e) {
+    autoLoginState.inFlight = false;
+    if (typeof onComplete === 'function') onComplete(false);
+   }
+  }
   function hasLoginCookie() {
    try {
     var raw = document.cookie || '';
@@ -263,16 +488,31 @@
     var msg = String(root.message || root.errorMessage || root.msg || root.detailMessage || root.errorCode || '');
     var codeNum = Number(root.code);
     if (codeNum === 121 || Number(root.errorCode) === 401 || /未登录|登录失效|会话过期|重新登录|未授权|Unauthorized|auto login failed/i.test(msg)) {
-     if (!wasRecentlyLoggedIn()) {
-      state.authRejected = true;
-      state.waybillVerified = false;
-      state.captured = false;
-      state.login = true;
-      state.orders = [];
-      state.byId = Object.create(null);
-      try { sessionStorage.removeItem('hc_sf_logged'); } catch(e) {}
-      try { if (typeof localStorage !== 'undefined') localStorage.removeItem('hc_sf_login_user'); } catch(e) {}
+     if (wasRecentlyLoggedIn()) return;
+     if (hasRememberMe() && autoLoginState.attempted < 3) {
+      trySfAutoLogin(function (ok) {
+       if (!ok && !hasRememberMe()) {
+        state.authRejected = true;
+        state.waybillVerified = false;
+        state.captured = false;
+        state.login = true;
+        state.orders = [];
+        state.byId = Object.create(null);
+        try { sessionStorage.removeItem('hc_sf_logged'); } catch(e) {}
+        try { if (typeof localStorage !== 'undefined') localStorage.removeItem('hc_sf_login_user'); } catch(e) {}
+       }
+      });
+      return;
      }
+     state.authRejected = true;
+     state.waybillVerified = false;
+     state.captured = false;
+     state.login = true;
+     state.orders = [];
+     state.byId = Object.create(null);
+     try { sessionStorage.removeItem('hc_sf_logged'); } catch(e) {}
+     try { if (typeof localStorage !== 'undefined') localStorage.removeItem('hc_sf_login_user'); } catch(e) {}
+     return;
     }
     return;
    }
@@ -374,6 +614,7 @@
 
   window.HandySfOrders = {
    openLogin: openSfLoginModal,
+   tryAutoLogin: trySfAutoLogin,
    snapshot: function () {
     adaptSfMobile();
     var modal = getVisibleLoginModal();
@@ -396,11 +637,19 @@
      return { href: location.href, login: false, ready: true, orders: rows };
     }
 
+    if (autoLoginState.inFlight) {
+     return { href: location.href, login: false, ready: false, orders: [] };
+    }
+
     var emptyBtn = document.querySelector('.empty-box-btn, [class*="empty"] button');
     var isLoggedOutBtn = Boolean(emptyBtn && /\u767b\u5f55/.test(emptyBtn.innerText || ''));
     var headerLogin = document.querySelector('.common-header .login, .header-wrap [class*="login"], span.login');
     var isLoggedOutHeader = Boolean(headerLogin && /\u767b\u5f55/.test(headerLogin.innerText || ''));
     if ((isLoggedOutBtn || isLoggedOutHeader) && !wasRecentlyLoggedIn() && !hasLoginCookie()) {
+     if (hasRememberMe() && autoLoginState.attempted < 2) {
+      trySfAutoLogin();
+      return { href: location.href, login: false, ready: false, orders: [] };
+     }
      state.login = true;
      return { href: location.href, login: true, ready: false, orders: [] };
     }
@@ -414,10 +663,17 @@
        if (u && typeof localStorage !== 'undefined') localStorage.setItem('hc_sf_login_user', u);
       }
      } catch(e) {}
+     if (hasRememberMe() && !state.waybillVerified && autoLoginState.attempted < 2) {
+      trySfAutoLogin();
+     }
      return { href: location.href, login: false, ready: false, orders: [] };
     }
 
     if ((isLoggedOutBtn || isLoggedOutHeader) && !wasRecentlyLoggedIn()) {
+     if (hasRememberMe() && autoLoginState.attempted < 2) {
+      trySfAutoLogin();
+      return { href: location.href, login: false, ready: false, orders: [] };
+     }
      state.login = true;
      return { href: location.href, login: true, ready: false, orders: [] };
     }
@@ -425,6 +681,12 @@
     return { href: location.href, login: false, ready: false, orders: [] };
    }
   };
+
+  if (hasRememberMe() && !state.waybillVerified) {
+   defer(function () {
+    trySfAutoLogin();
+   }, 300);
+  }
  }
  return window.HandySfOrders.snapshot();
 })()

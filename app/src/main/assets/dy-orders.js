@@ -18,7 +18,7 @@
      st.textContent=
       'html,body{min-width:0!important;width:100vw!important;max-width:100vw!important;overflow-x:hidden!important;background:#161823!important}'+
       'video{opacity:0!important;pointer-events:none!important}'+
-      '#douyin-navigation,[id*="douyin-navigation"],[class*="douyin-navigation"],#douyin_header,header,[class*="header-ui"],[class*="douyin-header"],[class*="nav-wrapper"],[class*="sidebar"],[id*="sidebar"]{display:none!important;width:0!important;max-width:0!important;height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}'+
+      'aside,nav,[class*="side-nav"],[class*="SideNav"],[class*="navigation"],[class*="left-nav"],[class*="leftBar"],[class*="left-bar"],[class*="guide"],[data-e2e*="nav"],#douyin-navigation,[id*="douyin-navigation"],[class*="douyin-navigation"],#douyin_header,header,[class*="header-ui"],[class*="douyin-header"],[class*="nav-wrapper"],[class*="sidebar"],[id*="sidebar"]{display:none!important;width:0!important;max-width:0!important;height:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}'+'[class*="layout"],[class*="container"],[class*="main"]{margin-left:0!important;padding-left:0!important;width:100vw!important;max-width:100vw!important}'+
       '#root,#dark,[class*="LebMor1Z"],main,[role="main"]{margin:0!important;padding:0!important;width:100vw!important;max-width:100vw!important;min-width:0!important;overflow-x:hidden!important}'+
       '#login-panel-new,#douyin-login-new-id{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;display:flex!important;align-items:center!important;justify-content:center!important;z-index:5000!important;background:rgba(22,24,35,0.98)!important;margin:0!important;padding:0!important;overflow-y:auto!important}'+
       '#douyin-login-new-id > div{width:100%!important;display:flex!important;justify-content:center!important;align-items:center!important;margin:0 auto!important}'+
@@ -33,6 +33,18 @@
      document.head.appendChild(st);
     }
    }
+   try {
+    var sidebars = document.querySelectorAll('aside, nav, [class*="nav"], [class*="side"], [class*="guide"]');
+    for (var s = 0; s < sidebars.length; s++) {
+     var sb = sidebars[s];
+     var sbt = (sb.innerText || '').trim();
+     if (/精选.*推荐|推荐.*精选|AI抖音/.test(sbt)) {
+      sb.style.setProperty('display', 'none', 'important');
+      sb.style.setProperty('width', '0px', 'important');
+      sb.style.setProperty('visibility', 'hidden', 'important');
+     }
+    }
+   } catch(e) {}
    var videos=document.querySelectorAll('video');
    for(var i=0;i<videos.length;i++){
     try{videos[i].muted=true;if(!videos[i].paused)videos[i].pause();}catch(e){}
