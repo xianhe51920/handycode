@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext,Script} from 'node:vm';
+import {parseHTML} from 'linkedom';
+const read=name=>readFileSync(new URL('../app/src/main/assets/'+name,import.meta.url),'utf8');
+const pddFn=read('pdd-layout.js').match(/^ function parcelsSnapshot\(\) \{.*?^ }\r?\n/ms)[0];
+let {document}=parseHTML('<html><body><div id="source"><div class="package-list-wrapper"><div class="package-list-picking">测试驿站一\n取件码 A11-445</div><div class="package-list-picking">测试驿站二\n取件码 A11-445</div><div class="package-list-picking">快递运单\n1234567890\n2026-11-14</div></div></div></body></html>');
+let context={document,source:document.getElementById('source')};
+let snapshot=runInNewContext(pddFn+'parcelsSnapshot()',context);
+assert.equal(snapshot.ready,true);assert.equal(snapshot.orders.length,2,'Different parcels with the same pickup code are both retained');
+assert.notEqual(snapshot.orders[0].id,snapshot.orders[1].id);
+context.source=null;assert.equal(runInNewContext(pddFn+'parcelsSnapshot()',context).ready,false);
+context.source=document.getElementById('source');context.source.innerHTML='<div class="package-none-container"></div>';
+snapshot=runInNewContext(pddFn+'parcelsSnapshot()',context);assert.equal(snapshot.ready,true);assert.equal(snapshot.orders.length,0);
+
+const tbFn=read('taobao.html').match(/^window\.HandyCodeParcelsSnapshot=function\(\)\{.*?^};/ms)[0];
+const outer=parseHTML('<html><body><div id="parcels-content" data-ready="true"></div></body></html>').document;
+const sourceDoc=parseHTML('<html><body><div id="ice-container"><div id="package-one"><span class="CHARACTER--fixture">602-1010</span></div><div id="package-two"><span class="CHARACTER--fixture">602-1010</span></div></div></body></html>').document;
+context={window:{},document:outer,sources:{parcels:{frame:{contentDocument:sourceDoc}}},project:()=>assert.fail('Read-only polling must not force projection or refresh')};
+runInNewContext(tbFn,context);snapshot=context.window.HandyCodeParcelsSnapshot();
+assert.equal(snapshot.orders.length,2);assert.notEqual(snapshot.orders[0].id,snapshot.orders[1].id);
+sourceDoc.getElementById('ice-container').innerHTML='';snapshot=context.window.HandyCodeParcelsSnapshot();assert.equal(snapshot.ready,true);assert.equal(snapshot.orders.length,0);
+for(const name of ['sf-orders.js','dy-orders.js','pickup-jd-orders.js','pickup-provider-theme.js'])new Script(read(name));
+console.log('PASS: read-only TB/PDD aggregation, same-code parcel identity, genuine empty state and no waybill/date false positives');

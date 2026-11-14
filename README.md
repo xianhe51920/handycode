@@ -1,5 +1,7 @@
 # HandyCode
 
+> **PR #7 集成测试分支：`codex/integrate-pr-7`。** 此分支保留现有四个平台，新增第五个「取件汇总」标签，尚未合入主分支或发布正式版。顺丰、抖音仍需真实账号和包裹验证；完整冲突处理、隐私调整及验证边界见 [集成说明](docs/pr-7-integration.md)。下文的 0.8.1 下载链接仍指向已发布正式版。
+
 <p align="center"><img src="design/icon-candidates/icon-02.png" alt="HandyCode 应用图标" width="160"></p>
 
 将**菜鸟身份码、淘宝和拼多多身份码与待取包裹、京东身份码与商城订单取件码**集中到一个 Android 应用中。应用在系统 WebView 中使用各平台的官方登录与数据更新流程。

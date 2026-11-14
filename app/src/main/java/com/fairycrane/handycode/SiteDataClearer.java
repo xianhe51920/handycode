@@ -30,8 +30,10 @@ public final class SiteDataClearer {
     }
     public static void removeObserver(Observer observer) { OBSERVERS.remove(observer); }
     public static void start(int page) {
+        startWithSites(page, LogoutSites.forPage(page));
+    }
+    public static void startWithSites(int page, String[] sites) {
         if (isBusy()) return;
-        final String[] sites = LogoutSites.forPage(page);
         if (!isSupported()) throw new UnsupportedOperationException("Site deletion unavailable");
         busyPage = page;
         for (Observer observer : new ArrayList<>(OBSERVERS)) observer.onStarted(page);

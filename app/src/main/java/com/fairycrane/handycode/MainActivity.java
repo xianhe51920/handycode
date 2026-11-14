@@ -37,9 +37,9 @@ import android.widget.TextView;
 public final class MainActivity extends Activity {
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
     private static final String TAOBAO_PACKAGE = "com.taobao.taobao";
-    private static final int TAB_CAINIAO = 0, TAB_TAOBAO = 1, TAB_PDD = 2, TAB_JD = 3, PAGE_COUNT = 4;
-    private static final String[] TAB_KEYS = {"cainiao", "taobao", "pinduoduo", "jd"};
-    private static final String[] TAB_NAMES = {"菜鸟", "淘宝", "拼多多", "京东"};
+    private static final int TAB_CAINIAO = 0, TAB_TAOBAO = 1, TAB_PDD = 2, TAB_JD = 3, TAB_PICKUP = 4, PAGE_COUNT = 5;
+    private static final String[] TAB_KEYS = {"cainiao", "taobao", "pinduoduo", "jd", "pickup"};
+    private static final String[] TAB_NAMES = {"菜鸟", "淘宝", "拼多多", "京东", "取件汇总"};
     private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab", KEY_THEME_MODE = "theme_mode";
     private static final String KEY_TAOBAO_LOGIN_REQUIRED = "taobao_login_required";
 
@@ -98,6 +98,9 @@ public final class MainActivity extends Activity {
     private FrameLayout browserFrame, pinduoduoFrame;
     private PddPage pddPage;
     private JdPage jdPage;
+    private PickupSummaryPage pickupPage;
+    private int clearingPickupProvider = -1, returnToPickupFromTab = -1, parcelSyncGeneration;
+    private final Runnable parcelSyncWatch = this::syncExternalParcels;
     private CainiaoPage cainiaoPage;
     private String combinedMarkup;
     private String combinedGateScript;
@@ -145,6 +148,10 @@ public final class MainActivity extends Activity {
 
     private final SiteDataClearer.Observer logoutListener = new SiteDataClearer.Observer() {
         @Override public void onStarted(int page) {
+            parcelSyncGeneration++;
+            if (pickupPage != null && (page == TAB_TAOBAO || page == TAB_PDD)) {
+                pickupPage.updateExternalParcels(page == TAB_TAOBAO ? PickupSummaryPage.PROVIDER_TB : PickupSummaryPage.PROVIDER_PDD, false, null);
+            }
             cancelSwitchAnimation();
             pageDragging = false;
             switchMotion.commit(selected);
@@ -156,6 +163,15 @@ public final class MainActivity extends Activity {
                 pddPage.resetSessionView();
             } else if (page == TAB_JD) {
                 jdPage.resetSessionView();
+                if (pickupPage != null) pickupPage.resetProviderSession(PickupSummaryPage.PROVIDER_JD);
+            } else if (page == TAB_PICKUP) {
+                if (clearingPickupProvider >= PickupSummaryPage.PROVIDER_JD) {
+                    pickupPage.resetProviderSession(clearingPickupProvider);
+                    if (clearingPickupProvider == PickupSummaryPage.PROVIDER_JD) {
+                        jdPage.resetSessionView(); signedIn[TAB_JD] = false; opened[TAB_JD] = false;
+                    }
+                }
+                clearingPickupProvider = -1;
             } else {
                 opened[TAB_CAINIAO] = false;
                 setTaobaoLoginRequired(true);
@@ -306,6 +322,7 @@ public final class MainActivity extends Activity {
         TaobaoLoginTheme.apply(phoneAddView, dark);
         if (pddPage != null) pddPage.setDark(dark);
         if (jdPage != null) jdPage.setDark(dark);
+        if (pickupPage != null) pickupPage.setDark(dark);
         if (cainiaoPage != null) cainiaoPage.setDark(dark);
         if (bottomBar != null) bottomBar.setDark(dark);
         updateNavigationEnabled();
@@ -340,7 +357,15 @@ public final class MainActivity extends Activity {
     private void setSignedIn(int page, boolean value) {
         if (value && SiteDataClearer.isBusy()) return;
         if (page >= 0 && page < PAGE_COUNT) {
+            if (signedIn[page] != value) parcelSyncGeneration++;
             signedIn[page] = value;
+            if (pickupPage != null && (page == TAB_TAOBAO || page == TAB_PDD) && !value) {
+                pickupPage.updateExternalParcels(page == TAB_TAOBAO ? PickupSummaryPage.PROVIDER_TB : PickupSummaryPage.PROVIDER_PDD, false, null);
+            }
+            if (value && returnToPickupFromTab == page) {
+                returnToPickupFromTab = -1;
+                if (selected == page) scanHandler.postDelayed(() -> { if (!isFinishing() && !isDestroyed()) selectPage(TAB_PICKUP); }, 450);
+            }
             if (page == TAB_TAOBAO) {
                 setTaobaoLoginRequired(!value);
                 if (combinedDisplayed && browser != null) {
@@ -497,7 +522,7 @@ public final class MainActivity extends Activity {
         header.setBackgroundColor(AppTheme.surface(dark));
         titleViewport = new FrameLayout(this);
         titleViewport.setClipChildren(true);
-        int[] icons = {R.drawable.ic_cainiao_official, R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_jd};
+        int[] icons = {R.drawable.ic_cainiao_official, R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_jd, R.drawable.ic_pickup};
         for (int i = 0; i < PAGE_COUNT; i++) {
             titleRows[i] = platformTitle(i, TAB_NAMES[i], icons[i]);
             titleViewport.addView(titleRows[i], new FrameLayout.LayoutParams(-1, -1));
@@ -563,7 +588,11 @@ public final class MainActivity extends Activity {
         cainiaoPage = new CainiaoPage(this, () -> selectPage(TAB_TAOBAO), () -> setSignedIn(TAB_TAOBAO, false));
         cainiaoPage.setLoginRequired(getSharedPreferences(PREF_UI, MODE_PRIVATE).getBoolean(KEY_TAOBAO_LOGIN_REQUIRED, false));
         viewport.addView(cainiaoPage, new FrameLayout.LayoutParams(-1, -1));
-        platformPages = new View[] {cainiaoPage, browserFrame, pinduoduoFrame, jdPage};
+        pickupPage = new PickupSummaryPage(this, value -> setSignedIn(TAB_PICKUP, value),
+            this::handlePickupExternalAction, this::updateNavigationEnabled);
+        pickupPage.setLogoutRequest(this::logoutPickupProvider);
+        viewport.addView(pickupPage, new FrameLayout.LayoutParams(-1, -1));
+        platformPages = new View[] {cainiaoPage, browserFrame, pinduoduoFrame, jdPage, pickupPage};
 
         bottomBar = new LiquidGlassBar(this);
         bottomBar.setListener(barScrubListener());
@@ -625,6 +654,69 @@ public final class MainActivity extends Activity {
         return row;
     }
 
+
+    private void logoutPickupProvider(int provider) {
+        if (selected != TAB_PICKUP || SiteDataClearer.isBusy() || provider < PickupSummaryPage.PROVIDER_JD
+                || provider > PickupSummaryPage.PROVIDER_DY || !pickupPage.isSignedIn(provider)) return;
+        if (!SiteDataClearer.isSupported()) {
+            android.widget.Toast.makeText(this, "请先更新 Android System WebView / Chrome，再退出登录", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        clearingPickupProvider = provider;
+        parcelSyncGeneration++;
+        SiteDataClearer.startWithSites(TAB_PICKUP, LogoutSites.forPickupProvider(provider));
+    }
+
+    private void handlePickupExternalAction(int action) {
+        if (action == -1) {
+            new AlertDialog.Builder(this).setTitle("切换取件平台")
+                .setItems(new String[]{"全部取件汇总", "淘宝", "拼多多", "京东订单", "顺丰速运（测试）", "抖音商城（测试）"}, (dialog, which) -> {
+                    if (which == 0) { pickupPage.showSummary(); syncExternalParcels(); }
+                    else if (which <= 2) handlePickupExternalAction(which - 1);
+                    else pickupPage.openProvider(which - 1);
+                }).show();
+        } else if (action == -2) {
+            refreshExternalParcels(TAB_TAOBAO); refreshExternalParcels(TAB_PDD);
+        } else if (action == PickupSummaryPage.PROVIDER_TB || action == PickupSummaryPage.PROVIDER_PDD) {
+            int tab = action == PickupSummaryPage.PROVIDER_TB ? TAB_TAOBAO : TAB_PDD;
+            if (!signedIn[tab]) { returnToPickupFromTab = tab; selectPage(tab); }
+            else { refreshExternalParcels(tab); pickupPage.showSummary(); }
+        }
+    }
+
+    private void refreshExternalParcels(int tab) {
+        if (tab == TAB_TAOBAO && browser != null && combinedDisplayed) {
+            browser.evaluateJavascript("window.HandyCodeRefreshParcels && HandyCodeRefreshParcels()", null);
+        } else if (tab == TAB_PDD) pddPage.refreshParcels();
+        scanHandler.removeCallbacks(parcelSyncWatch);
+        scanHandler.postDelayed(parcelSyncWatch, 600);
+    }
+
+    private void syncExternalParcels() {
+        scanHandler.removeCallbacks(parcelSyncWatch);
+        if (!activityResumed || pickupPage == null || selected != TAB_PICKUP || SiteDataClearer.isBusy()) return;
+        final int expected = parcelSyncGeneration;
+        if (browser != null && combinedDisplayed && signedIn[TAB_TAOBAO]) {
+            browser.evaluateJavascript("window.HandyCodeParcelsSnapshot ? HandyCodeParcelsSnapshot() : null", value -> {
+                if (expected != parcelSyncGeneration || selected != TAB_PICKUP || !signedIn[TAB_TAOBAO]) return;
+                applyExternalSnapshot(PickupSummaryPage.PROVIDER_TB, value);
+            });
+        }
+        if (signedIn[TAB_PDD]) pddPage.pollParcels(value -> {
+            if (expected != parcelSyncGeneration || selected != TAB_PICKUP || !signedIn[TAB_PDD]) return;
+            applyExternalSnapshot(PickupSummaryPage.PROVIDER_PDD, value);
+        });
+        scanHandler.postDelayed(parcelSyncWatch, 1500);
+    }
+
+    private void applyExternalSnapshot(int provider, String value) {
+        if (!activityResumed || isFinishing() || isDestroyed() || pickupPage == null || value == null || value.length() > 65536 || "null".equals(value)) return;
+        try {
+            org.json.JSONObject snapshot = new org.json.JSONObject(value);
+            if (snapshot.optBoolean("ready")) pickupPage.updateExternalParcels(provider, true, snapshot.optJSONArray("orders"));
+        } catch (org.json.JSONException ignored) {}
+    }
+
     private void applyKeyboardPadding(int keyboardBottom, int systemBottom) {
         if (viewport == null) return;
         int footer = bottomBar == null || bottomBar.getHeight() == 0 ? dp(64) : bottomBar.getHeight();
@@ -638,6 +730,7 @@ public final class MainActivity extends Activity {
         viewport.setPadding(0, 0, 0, padding);
         if (padding > 0 && selected == TAB_PDD) pddPage.post(pddPage::scrollFocusedInput);
         if (imeOpen && selected == TAB_JD) jdPage.post(jdPage::scrollFocusedInput);
+        if (imeOpen && selected == TAB_PICKUP) pickupPage.post(pickupPage::scrollFocusedInput);
         if (imeOpen && selected == TAB_CAINIAO) cainiaoPage.post(cainiaoPage::scrollFocusedInput);
         final WebView web = taobaoInputView();
         if (padding > 0 && selected == TAB_TAOBAO && web != null) {
@@ -847,7 +940,7 @@ public final class MainActivity extends Activity {
 
     private SwipeFrameLayout.Listener pageSwipeListener() {
         return new SwipeFrameLayout.Listener() {
-            @Override public boolean allowsSwipe() { return selected != TAB_JD || !jdPage.blocksPageSwipe(); }
+            @Override public boolean allowsSwipe() { return (selected != TAB_JD || !jdPage.blocksPageSwipe()) && (selected != TAB_PICKUP || pickupPage.getMode() == PickupSummaryPage.MODE_SUMMARY); }
             @Override public boolean isSettling() { return switchAnimation != null; }
             @Override public void onDragStarted() {
                 cancelSwitchAnimation();
@@ -976,6 +1069,7 @@ public final class MainActivity extends Activity {
             if (keyboard != null) keyboard.hideSoftInputFromWindow(viewport.getWindowToken(), 0);
         }
         if (selected != TAB_JD) jdPage.pausePage();
+        if (selected != TAB_PICKUP) { pickupPage.pausePage(); scanHandler.removeCallbacks(parcelSyncWatch); }
         if (selected != TAB_CAINIAO) cainiaoPage.pausePage();
         try {
             if (selected == TAB_TAOBAO) {
@@ -990,6 +1084,8 @@ public final class MainActivity extends Activity {
                 pddPage.idlePage();
                 jdPage.showPage();
                 opened[TAB_JD] = true;
+            } else if (selected == TAB_PICKUP) {
+                stopShimmer(); pddPage.idlePage(); pickupPage.showPage(); opened[TAB_PICKUP] = true; syncExternalParcels();
             } else if (selected == TAB_CAINIAO) {
                 stopShimmer();
                 pddPage.idlePage();
@@ -1485,6 +1581,8 @@ public final class MainActivity extends Activity {
             if (phoneAddView != null) closePhoneAdd(true);
             else if (popupView.canGoBack()) popupView.goBack();
             else closePopup();
+        } else if (selected == TAB_PICKUP && pickupPage.goBack()) {
+            return;
         } else if (selected == TAB_JD && jdPage.goBack()) {
             return;
         } else if (selected == TAB_CAINIAO && cainiaoPage.goBack()) {
@@ -1520,6 +1618,8 @@ public final class MainActivity extends Activity {
         if (phoneAddView != null) phoneAddView.onPause();
         pddPage.pausePage();
         jdPage.pausePage();
+        pickupPage.pausePage();
+        scanHandler.removeCallbacks(parcelSyncWatch);
         cainiaoPage.pausePage();
         super.onPause();
     }
@@ -1536,6 +1636,8 @@ public final class MainActivity extends Activity {
         if (phoneAddView != null) phoneAddView.onResume();
         pddPage.resumePage(selected == TAB_PDD);
         jdPage.resumePage(selected == TAB_JD);
+        pickupPage.resumePage(selected == TAB_PICKUP);
+        if (selected == TAB_PICKUP) syncExternalParcels();
         if (selected == TAB_CAINIAO && opened[TAB_CAINIAO]) cainiaoPage.showPage();
         if (!opened[selected]) { completeSelection(selected); return; }
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
@@ -1554,6 +1656,8 @@ public final class MainActivity extends Activity {
         popupGeneration++;
         pddPage.destroyPage();
         jdPage.destroyPage();
+        pickupPage.destroyPage();
+        scanHandler.removeCallbacks(parcelSyncWatch);
         cainiaoPage.resetSessionView();
         closePopup();
         if (browser != null) {

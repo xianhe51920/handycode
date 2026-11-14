@@ -511,6 +511,19 @@ final class PddPage extends LinearLayout {
         return true;
     }
 
+    void pollParcels(android.webkit.ValueCallback<String> callback) {
+        if (web == null || destroyed || !isPackageUrl(web.getUrl())) {
+            callback.onReceiveValue("null");
+            return;
+        }
+        web.evaluateJavascript("(function(){return window.HandyPddLayout&&window.HandyPddLayout.parcelsSnapshot?window.HandyPddLayout.parcelsSnapshot():null;})()", callback);
+    }
+
+    void refreshParcels() {
+        if (web == null || destroyed || !isPackageUrl(web.getUrl())) return;
+        web.evaluateJavascript("(function(){if(window.HandyPddRefresh)window.HandyPddRefresh.run('parcels').catch(function(){});})()", null);
+    }
+
     void scrollFocusedInput() {
         if (web != null) web.evaluateJavascript("(function(){var e=document.activeElement;if(e&&e.matches('input,textarea'))e.scrollIntoView({block:'center'});})()", null);
     }

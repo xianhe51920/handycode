@@ -639,6 +639,39 @@ html.hc-pdd-source-mode,html.hc-pdd-source-mode body{overflow:hidden!important}
   setDark(isDark());
   phase('loading'); update();
  }
- window.HandyPddLayout = {update:update, back:back, setActive:setActive, setDark:setDark};
+ function parcelsSnapshot() {
+  if (!source) return {ready:false,orders:[]};
+  var empty = source.querySelector('[class*="package-none-container"]');
+  if (empty) return {ready:true,orders:[]};
+  var items = Array.from(source.querySelectorAll('[class*="package-list-wrapper"] .package-list-picking'));
+  if (!items.length) {
+   var m = document.getElementById('hc-pdd-parcels');
+   return {ready:!!(m && m.dataset.ready === 'true'),orders:[]};
+  }
+  function findCode(s) {
+   var match = String(s||'').match(/(?:取件码|提货码|取货码|凭码|自提码|取件密码|钥匙码)[:：\s【\[（(]*([A-Za-z0-9-]{2,16})(?![A-Za-z0-9-])/);
+   if (match) return match[1];
+   var sh = String(s||'').match(/(?:^|[^\dA-Za-z-])([A-Za-z0-9]{1,5}-\d{1,4}(?:-\d{1,6})?)(?![A-Za-z0-9-])/);
+   if (sh && !/^20\d\d-\d{1,2}(?:-\d{1,2})?$/.test(sh[1])) return sh[1];
+   return '';
+  }
+  var rows = [];
+  items.slice(0, 40).forEach(function (node, idx) {
+   var raw = (node.innerText || node.textContent || '').trim();
+   if (!raw) return;
+   var lines = raw.split(/\n+/).map(function (l) { return l.trim(); }).filter(function (l) {
+    return l && !/^(待取件详情|查看详情|刷新|身份码|取快递)$/.test(l);
+   });
+   var c = findCode(raw);
+   if (!c) return;
+   var station = '拼多多驿站包裹';
+   for (var j = 0; j < lines.length; j++) {
+    if (/驿站|买菜|代收|丰巢|快递|自提/.test(lines[j]) && lines[j] !== c) { station = lines[j].slice(0, 80); break; }
+   }
+   rows.push({id:'pdd_' + idx + '_' + c, name:station, status:'待取件', detail:lines.join(' · ').slice(0, 300), code:c});
+  });
+  return {ready:true,orders:rows};
+ }
+ window.HandyPddLayout = {update:update, back:back, setActive:setActive, setDark:setDark, parcelsSnapshot:parcelsSnapshot};
  if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot, {once:true});
 })();
