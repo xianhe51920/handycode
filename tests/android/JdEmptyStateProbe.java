@@ -83,9 +83,9 @@ public final class JdEmptyStateProbe extends Instrumentation {
                     report.append("live native flags snapshot=").append(!cached.isEmpty()).append(",hasCodes=").append(cachedCodes)
                         .append(",error=").append(!((String)field(live, "error")).isEmpty()).append('\n');
                     Class<?> type = live.getClass();
-                    Constructor<?> constructor = type.getDeclaredConstructor(Context.class, Consumer.class);
+                    Constructor<?> constructor = type.getDeclaredConstructor(Context.class, Consumer.class, Runnable.class);
                     constructor.setAccessible(true);
-                    Object isolated = constructor.newInstance(activity, (Consumer<Boolean>)value -> {});
+                    Object isolated = constructor.newInstance(activity, (Consumer<Boolean>)value -> {}, (Runnable)() -> {});
                     set(isolated, "lastSnapshot", "{\"orders\":[]}");
                     set(isolated, "loading", false);
                     call(isolated, "setDark", boolean.class, true);

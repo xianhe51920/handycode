@@ -105,8 +105,9 @@ public final class PagerProbe extends Instrumentation {
             Intent launch = new Intent().setClassName("com.fairycrane.handycode", "com.fairycrane.handycode.MainActivity");
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); launch.putExtra("provider", "taobao");
             activity = startActivitySync(launch); Thread.sleep(700); guard();
-            int[] buttons={0};runOnMainSync(()->buttons[0]=buttonCount(activity.getWindow().getDecorView()));
-            check(buttons[0]==1,"Exactly one shared logout button");
+            View header=(View)field(activity,"headerLayout");
+            int[] buttons={0};runOnMainSync(()->buttons[0]=buttonCount(header));
+            check(buttons[0]==0,"The title bar has no login status or logout button");
             select(2);
             Object pdd = field(activity,"pddPage"); WebView web = (WebView)field(pdd,"web");
             boolean ready=false;
@@ -128,8 +129,8 @@ public final class PagerProbe extends Instrumentation {
                 checkPreviewPixels();
                 touch(MotionEvent.ACTION_CANCEL,endX); holding=false; Thread.sleep(400);
                 select(2);
-                Button logout=(Button)field(activity,"logoutButton");
-                check("退出拼多多登录".contentEquals(logout.getContentDescription()),"Logout follows settled platform");
+                check("true".equals(eval(web,"!!document.querySelector('#hc-pdd-shell:not([hidden]) #hc-logout:not([hidden])')")),
+                    "Logout is visible below the authenticated cards");
             }
             eval(web,"delete window.__hcRetainProbe;true");
             result.putString("stream","PASS: "+checks+" live retention/UI checks, including three held previews; pixels analyzed in memory only\n");

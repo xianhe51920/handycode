@@ -1,4 +1,4 @@
-# AndroidX WebKit site deletion API
+# AndroidX WebKit site deletion and document-start APIs
 
 AndroidX WebKit 1.13.0, Apache-2.0 (`LICENSE.txt`). The APK also includes the license at `assets/licenses/androidx-webkit.txt`.
 
@@ -8,7 +8,7 @@ Official inputs (unaltered):
 - [core-1.1.0.aar](https://dl.google.com/dl/android/maven2/androidx/core/core/1.1.0/core-1.1.0.aar), SHA256 `76c7cfbe596fe3c09a6983bf1c89e889299c08ac9a3b52ce5182a088d056647e`. Compile-only input for R8; no Core classes enter the app.
 - Original WebKit POM retained. No downloaded executable or runtime network dependency.
 
-`site-data-compat.jar` retains the official `WebStorageCompat.deleteBrowsingDataForSite(WebStorage,String,Executor,Runnable)` and `WebViewFeature.isFeatureSupported(String)` entry points, their reachable helpers and Chromium boundary interfaces. `site-data.pro` only removes unused library classes; no optimization or obfuscation. The application's own classes are compiled normally by javac/D8. Library checksum is checked before each app build.
+`site-data-compat.jar` retains the official `WebStorageCompat.deleteBrowsingDataForSite(WebStorage,String,Executor,Runnable)`, `WebViewFeature.isFeatureSupported(String)` and `WebViewCompat.addDocumentStartJavaScript(WebView,String,Set)` entry points, `ScriptHandler.remove()`, their reachable helpers and Chromium boundary interfaces. Document-start injection applies the login theme inside explicitly allowed official Taobao frames; the app checks `DOCUMENT_START_SCRIPT` support first. `site-data.pro` only removes unused library classes; no optimization or obfuscation. The application's own classes are compiled normally by javac/D8. Library checksum is checked before each app build.
 
 Rebuild offline with SDK build-tools 36.0.0/R8 and JDK21:
 

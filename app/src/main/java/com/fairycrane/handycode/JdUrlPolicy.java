@@ -5,6 +5,14 @@ import java.util.Locale;
 public final class JdUrlPolicy {
  private JdUrlPolicy() {}
  public static final String ORDERS="https://trade.m.jd.com/order/orderlist_jdm.shtml";
+ public static final String IDENTITY="https://convenient-h5.jd.com/identityCode?channel=xueshengjirukou";
+ public static boolean isIdentity(String raw) {
+  if (!allowed(raw)) return false;
+  try {
+   URI u = new URI(raw);
+   return "convenient-h5.jd.com".equalsIgnoreCase(u.getHost()) && "/identityCode".equals(u.getPath());
+  } catch (Exception invalid) { return false; }
+ }
  public static final String LOGIN="https://plogin.m.jd.com/login/login?appid=100&returnurl=https%3A%2F%2Ftrade.m.jd.com%2Forder%2Forderlist_jdm.shtml";
  public static boolean allowed(String raw) {
   if(raw==null||raw.length()>8192)return false;

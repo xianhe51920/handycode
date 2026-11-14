@@ -2,12 +2,30 @@
  'use strict';
  if (global.HandyPickupMotion) return;
  var transitions = new WeakMap(), zooms = new WeakMap();
+ function identityHeight(width) { return Math.max(202,Math.min(226,274-.2*width)); }
+ function loadingMarkup() {
+  if (!document.getElementById('hc-loading-style')) {
+   var style = document.createElement('style'); style.id = 'hc-loading-style';
+   style.textContent = `
+.hc-load-indicator{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--hc-loading-ink,#697386);font:12px/18px system-ui,sans-serif}
+.hc-load-dots{display:flex;align-items:center;gap:6px;height:12px}
+.hc-load-dots span{display:block;width:6px;height:6px;border-radius:50%;background:currentColor;animation:hc-load-pulse 1.1s ease-in-out infinite}
+.hc-load-dots span:nth-child(2){animation-delay:.15s}.hc-load-dots span:nth-child(3){animation-delay:.3s}
+html[data-hc-theme="dark"],html[data-hc-cainiao-theme="dark"]{--hc-loading-ink:#949eb0}
+html[data-hc-loading-paused] .hc-load-dots span{animation-play-state:paused}
+@keyframes hc-load-pulse{0%,100%{opacity:.5;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
+@media(prefers-reduced-motion:reduce){.hc-load-dots span{animation:none}}
+`;
+   (document.head || document.documentElement).appendChild(style);
+  }
+  return '<div class="hc-load-indicator" role="status"><div class="hc-load-dots" aria-hidden="true"><span></span><span></span><span></span></div><span>正在加载…</span></div>';
+ }
  function reduced() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
  function cancel(mount) {
   var running = transitions.get(mount);
   if (!running) return;
   transitions.delete(mount);
-  running.forEach(function (animation) { animation.cancel(); });
+  running.slice().forEach(function (animation) { animation.cancel(); });
   var ghost = mount.querySelector('.hc-pickup-outgoing');
   if (ghost) ghost.remove();
  }
@@ -15,7 +33,6 @@
   var before = mount.getBoundingClientRect().height;
   var placeholder = mount.firstElementChild;
   var leaving = placeholder && placeholder.matches('.hc-section-placeholder,.hc-pdd-placeholder');
-  var placeholderHeight = leaving ? placeholder.getBoundingClientRect().height : 0;
   var zoom = zooms.get(mount);
   if (zoom) zoom.detach(true);
   cancel(mount);
@@ -43,20 +60,24 @@
    // The old skeleton is decorative and leaves over the real content.
    placeholder.classList.add('hc-pickup-outgoing');
    placeholder.setAttribute('aria-hidden', 'true');
-   placeholder.style.cssText += ';position:absolute;top:10px;left:10px;right:10px;height:' + placeholderHeight +
-    'px;pointer-events:none;background:var(--hc-card-surface,#fff)';
+   placeholder.style.cssText += ';position:absolute;inset:10px;height:auto;pointer-events:none;background:var(--hc-card-surface,#fff)';
    mount.appendChild(placeholder);
-   if (!animate(placeholder, [{opacity:1},{opacity:0}], {duration:220,easing:'ease-out'}, function () { placeholder.remove(); })) placeholder.remove();
-   animate(content, [{opacity:0},{opacity:1}], {duration:280,easing:'ease-out'});
+   var delay = before > 0 && Math.abs(after-before)>1 ? 240 : 0;
+   if (!animate(placeholder, [{opacity:1},{opacity:0}], {duration:180,delay:delay,easing:'ease-out'}, function () { placeholder.remove(); })) placeholder.remove();
+   animate(content, [{opacity:0},{opacity:1}], {duration:180,delay:delay,fill:'backwards',easing:'ease-out'});
   }
   if (mount.animate && before > 0 && Math.abs(after - before) > 1) {
    animate(mount, [{height:before+'px',clipPath:'inset(0)'},{height:after+'px',clipPath:'inset(0)'}],
-    {duration:300,easing:'cubic-bezier(.25,.65,.25,1)'});
+    {duration:240,easing:'cubic-bezier(.25,.65,.25,1)'});
   }
   if (running.length) transitions.set(mount, running);
  }
  function bindZoom(mount, imageSelector) {
   var node, image, progress = 0, expanded = false, frame;
+  function reserveHeight() {
+   mount.style.setProperty('--hc-identity-height',identityHeight(window.innerWidth || 360)+'px');
+  }
+  reserveHeight();
   function draw(value) {
    progress = value;
    if (!node) return;
@@ -64,6 +85,7 @@
     node.style.transform = '';
     mount.style.height = '';
     mount.style.overflow = '';
+    mount.style.alignItems = '';
     return;
    }
    var style = window.getComputedStyle(mount);
@@ -81,9 +103,11 @@
    var rotatedHeight = width * sine + height * cosine;
    var scale = Math.min(1 + value * (expandedScale - 1),
     width / (width * cosine + height * sine), available / rotatedHeight);
-   var box = Math.min(available, scale * rotatedHeight + value * (available - width * expandedScale));
+   var base = Math.max(height,identityHeight(window.innerWidth || 360)-padding);
+   var box = Math.min(available,Math.max(scale*rotatedHeight,base+(available-base)*value));
    mount.style.height = box + padding + 'px';
    mount.style.overflow = 'clip';
+   mount.style.alignItems = 'flex-start';
    node.style.setProperty('transform', 'translateY(' + ((box - height) / 2) + 'px) rotate(' +
     (90 * value) + 'deg) scale(' + scale + ')', 'important');
   }
@@ -127,12 +151,16 @@
   mount.addEventListener('keydown', function (event) {
    if (event.target === image && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); toggle(); }
   });
-  window.addEventListener('resize', function () { if (progress) draw(progress); });
+  window.addEventListener('resize', function () { reserveHeight(); if (progress) draw(progress); });
+  return {setExpanded:function(value) {
+   stop(); expanded = !!value; updateImage(); draw(expanded ? 1 : 0);
+  }};
  }
  function reset(mount) {
   cancel(mount);
   var zoom = zooms.get(mount);
   if (zoom) zoom.detach(false);
  }
- global.HandyPickupMotion = {replace:replace,bindZoom:bindZoom,reset:reset,cancel:cancel};
+ global.HandyPickupMotion = {replace:replace,bindZoom:bindZoom,reset:reset,cancel:cancel,
+  loadingMarkup:loadingMarkup,identityHeight:identityHeight,isSettled:function(mount){return !transitions.has(mount);}};
 })(globalThis);

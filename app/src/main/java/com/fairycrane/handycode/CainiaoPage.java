@@ -13,6 +13,7 @@ import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
@@ -29,6 +30,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.IOException;
+import org.json.JSONObject;
 
 /** Keeps official authorization and the live barcode in the shared Taobao WebView store. */
 final class CainiaoPage extends FrameLayout {
@@ -48,6 +50,8 @@ final class CainiaoPage extends FrameLayout {
     private boolean dark, active, checking, installed, committed;
     private long generation, deadline, phoneSince;
     private String phase = "loading";
+    private float geometryWidth, geometryTop, geometryBody, geometryHeading;
+    private boolean geometryExpanded, restoringGeometry, refreshExpanded;
 
     CainiaoPage(Context context, Runnable openTaobao, Runnable onLoginRequired) {
         super(context);
@@ -201,6 +205,27 @@ final class CainiaoPage extends FrameLayout {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setBackgroundColor(AppTheme.bg(dark));
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage message) {
+                String prefix = "__HANDYCODE_CAINIAO_GEOMETRY__:";
+                if (!isEntry(web == null ? null : web.getUrl()) || !message.message().startsWith(prefix)) return false;
+                try {
+                    JSONObject data = new JSONObject(message.message().substring(prefix.length()));
+                    float width = (float)data.getDouble("width"), top = (float)data.getDouble("top");
+                    float body = (float)data.getDouble("body"), heading = (float)data.getDouble("heading");
+                    if (width >= 240 && width <= 2000 && top >= -10000 && top <= 10000
+                            && body >= 32 && body <= 10000 && heading >= 20 && heading <= 200) {
+                        boolean expanded = data.optBoolean("expanded");
+                        if (data.optBoolean("refresh")) { refreshExpanded = expanded; restoringGeometry = true; }
+                        if (restoringGeometry && expanded != refreshExpanded) return true;
+                        geometryWidth = width; geometryTop = top; geometryBody = body; geometryHeading = heading;
+                        geometryExpanded = expanded;
+                        if ("ready".equals(phase) && cover.getVisibility() != VISIBLE)
+                            cover.matchIdentityGeometry(width, top, body, heading);
+                        if (data.optBoolean("refresh")) loading();
+                    }
+                } catch (Exception ignored) { /* Only dimensions and the zoom flag are accepted. */ }
+                return true;
+            }
             @Override public void onPermissionRequest(PermissionRequest request) { request.deny(); }
         });
         web.setWebViewClient(new WebViewClient() {
@@ -268,7 +293,7 @@ final class CainiaoPage extends FrameLayout {
         }
         WebView expected = web;
         long token = generation;
-        String update = "window.HandyCodeCainiaoLayout?HandyCodeCainiaoLayout.update(" + dark + "):'install'";
+        String update = "window.HandyCodeCainiaoLayout?HandyCodeCainiaoLayout.update(" + dark + "," + geometryExpanded + "):'install'";
         checking = true;
         web.evaluateJavascript(installed ? update : bootstrap + "\n;" + update, value -> {
             if (expected != web || token != generation) return;
@@ -302,6 +327,10 @@ final class CainiaoPage extends FrameLayout {
     }
 
     private void loading() {
+        cover.animate().cancel();
+        cover.stopMorph();
+        cover.setAlpha(1f);
+        if (geometryWidth > 0) cover.matchIdentityGeometry(geometryWidth, geometryTop, geometryBody, geometryHeading);
         phase = "loading";
         deadline = SystemClock.elapsedRealtime() + 18000;
         errorPanel.setVisibility(GONE);
@@ -316,18 +345,42 @@ final class CainiaoPage extends FrameLayout {
         phase = next;
         WebView expected = web;
         long token = generation;
-        web.postVisualStateCallback(token, new WebView.VisualStateCallback() {
+        if ("ready".equals(next) && restoringGeometry) {
+            web.evaluateJavascript("window.HandyCodeCainiaoLayout&&HandyCodeCainiaoLayout.restoreZoom(" + refreshExpanded + ")", ignored -> {
+                if (web == expected && generation == token && next.equals(phase)) revealPrepared(expected, token, next);
+            });
+        } else revealPrepared(expected, token, next);
+    }
+
+    private void revealPrepared(WebView expected, long token, String next) {
+        expected.postVisualStateCallback(token, new WebView.VisualStateCallback() {
             @Override public void onComplete(long requestId) {
                 if (web != expected || generation != token || !next.equals(phase)) return;
-                cover.setAnimating(false);
-                cover.setVisibility(GONE);
                 errorPanel.setVisibility(GONE);
                 expected.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+                if ("ready".equals(next) && geometryWidth > 0 && cover.getVisibility() == VISIBLE) {
+                    cover.morphIdentityTo(geometryWidth, geometryTop, geometryBody, geometryHeading, () -> {
+                     if (web != expected || generation != token || !next.equals(phase)) return;
+                     cover.animate().alpha(0f).setDuration(PickupLoadingView.FADE_DURATION).withEndAction(() -> {
+                        if (web != expected || generation != token || !next.equals(phase)) return;
+                        cover.setAnimating(false);
+                        cover.setVisibility(GONE);
+                        cover.setAlpha(1f);
+                        restoringGeometry = false;
+                    }).start();
+                    });
+                } else {
+                    cover.setAnimating(false);
+                    cover.setVisibility(GONE);
+                    restoringGeometry = false;
+                }
             }
         });
     }
 
     private void fail(String message) {
+        cover.animate().cancel();
+        cover.stopMorph();
         phase = "error";
         status.setText(message);
         loginPanel.setVisibility(GONE);
@@ -359,6 +412,10 @@ final class CainiaoPage extends FrameLayout {
         generation++;
         checking = installed = committed = false;
         phoneSince = 0;
+        geometryWidth = geometryTop = geometryBody = geometryHeading = 0;
+        geometryExpanded = false;
+        restoringGeometry = false;
+        cover.resetGeometry();
         if (web != null) {
             WebView closed = web;
             web = null;

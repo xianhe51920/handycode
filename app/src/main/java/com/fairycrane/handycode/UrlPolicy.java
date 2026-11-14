@@ -6,11 +6,14 @@ import java.util.Locale;
 
 /** Official Taobao content and authentication hosts allowed inside WebView. */
 public final class UrlPolicy {
+    static final String LOCAL_LOGOUT_ACTION = "https://handycode.invalid/actions/logout";
     public static final String PDD_IDENTITY_APP_LINK = "pinduoduo://com.xunmeng.pinduoduo/mdkd/package?tab=ID_CODE";
     public static final String TAOBAO_ENTRY =
         "https://pages-fast.m.taobao.com/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/identity-code";
     public static final String TAOBAO_PARCELS_ENTRY =
         "https://pages-fast.m.taobao.com/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home";
+    public static final String TAOBAO_ADD_PACKAGE_ENTRY =
+        "https://pages-fast.m.taobao.com/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/school-search-ssr?from=XY&openFrom=emptyPackage";
     private static final String[] ALLOWED_HOSTS = {"taobao.com", "tmall.com", "alipay.com", "cainiao.com", "alibaba.com"};
     private UrlPolicy() {}
 
@@ -39,6 +42,12 @@ public final class UrlPolicy {
         URI uri = httpsUri(raw);
         return uri != null && "pages-fast.m.taobao.com".equalsIgnoreCase(uri.getHost()) && uri.getPath() != null
             && uri.getPath().matches("/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/add-friend-phone(?:-ssr)?");
+    }
+
+    public static boolean isTaobaoAddPackagePage(String raw) {
+        URI uri = httpsUri(raw);
+        return uri != null && "pages-fast.m.taobao.com".equalsIgnoreCase(uri.getHost()) && uri.getPath() != null
+            && uri.getPath().matches("/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/school-search(?:-ssr)?");
     }
 
     public static boolean isPddLoginPage(String raw) {

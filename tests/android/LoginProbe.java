@@ -11,7 +11,6 @@ import android.webkit.WebView;
 import android.widget.Button;
 import com.fairycrane.handycode.UrlPolicy;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.json.JSONObject;
@@ -49,28 +48,15 @@ public final class LoginProbe extends Instrumentation {
                 Thread.sleep(300);
             }
             check(login,"Official login page and delegated app-button hook ready");
-            Button status=(Button)field(activity,"logoutButton");
+            android.view.ViewGroup header=(android.view.ViewGroup)field(activity,"headerLayout");
             runOnMainSync(()->{
-                check("未登录".contentEquals(status.getText()),"Logged-out status label");
-                check(!status.isEnabled(),"Logged-out status cannot trigger logout");
-                check(status.getCompoundDrawablesRelative()[2]==null,"No logout icon when signed out");
+                for (int i=0;i<header.getChildCount();i++) {
+                    check(!(header.getChildAt(i) instanceof Button),"Logged-out header hides account controls");
+                }
             });
+            check("true".equals(eval(web,"!document.getElementById('hc-logout')")),"Official login page has no logout action");
             View actions=(View)field(pdd,"actions");
             runOnMainSync(()->check(actions.getVisibility()==View.GONE,"No native toolbar above login"));
-            Method set=activity.getClass().getDeclaredMethod("setSignedIn",int.class,boolean.class);set.setAccessible(true);
-            boolean[] states=(boolean[])field(activity,"signedIn");final boolean oldTao=states[0],oldPdd=states[1];
-            runOnMainSync(()->{
-                try {
-                    set.invoke(activity,0,true);
-                    check("未登录".contentEquals(status.getText()),"Other platform login does not change active status");
-                    set.invoke(activity,1,true);
-                    check("退出登录".contentEquals(status.getText())&&status.isEnabled(),"Signed-in state restores logout action");
-                    check(status.getCompoundDrawablesRelative()[2]!=null,"Signed-in state restores vector icon");
-                    set.invoke(activity,0,false);
-                    check("退出登录".contentEquals(status.getText()),"Other platform logout does not change active status");
-                } catch(Exception error){throw new RuntimeException(error);}
-                finally{try{set.invoke(activity,0,oldTao);set.invoke(activity,1,oldPdd);}catch(Exception error){throw new RuntimeException(error);}}
-            });
             final int[] launched={0};final boolean[] correct={false};
             monitor=new ActivityMonitor(){
                 @Override public ActivityResult onStartActivity(Intent intent){

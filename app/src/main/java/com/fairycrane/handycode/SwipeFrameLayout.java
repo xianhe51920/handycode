@@ -9,6 +9,7 @@ import android.widget.FrameLayout;
 /** Intercepts horizontal intent only; vertical scrolling stays in WebView. */
 class SwipeFrameLayout extends FrameLayout {
     interface Listener {
+        default boolean allowsSwipe() { return true; }
         boolean isSettling();
         void onDragStarted();
         void onDrag(float deltaX);
@@ -59,9 +60,13 @@ class SwipeFrameLayout extends FrameLayout {
             downX = event.getX(); downY = event.getY(); downAt = event.getEventTime();
             direction = 0; dragging = false;
             recycleVelocity();
+            if (!enabled || listener == null || !listener.allowsSwipe()) {
+                direction = 2;
+                return false;
+            }
             velocity = VelocityTracker.obtain();
             velocity.addMovement(event);
-            if (enabled && captureSettlingTouches && listener != null && listener.isSettling()) {
+            if (captureSettlingTouches && listener.isSettling()) {
                 originX = downX; direction = 1; dragging = true;
                 listener.onDragStarted();
                 getParent().requestDisallowInterceptTouchEvent(true);
@@ -71,7 +76,11 @@ class SwipeFrameLayout extends FrameLayout {
         }
         if (velocity != null) velocity.addMovement(event);
         if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && !dragging) recycleVelocity();
-        if (!enabled || listener == null) return false;
+        if (!enabled || listener == null || !listener.allowsSwipe()) {
+            direction = 2;
+            recycleVelocity();
+            return false;
+        }
         if (action == MotionEvent.ACTION_POINTER_DOWN || event.getPointerCount() > 1) { direction = 2; return false; }
         if (action == MotionEvent.ACTION_MOVE && direction == 0) {
             if (event.getEventTime() - downAt >= ViewConfiguration.getLongPressTimeout()) { direction = 2; return false; }

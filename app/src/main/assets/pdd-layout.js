@@ -10,6 +10,29 @@
  var refreshes = {}, failedRefresh = {};
  var authenticated = false;
  var bootObserver, bootTimeout;
+ var viewport, originalViewport, createdViewport, viewportObserver;
+ var cardsViewport = 'width=device-width, initial-scale=1, viewport-fit=cover';
+ function cardViewport(cards) {
+  if (!viewport) {
+   viewport = document.querySelector('meta[name="viewport"]');
+   createdViewport = !viewport;
+   if (!viewport) { viewport=document.createElement('meta');viewport.name='viewport'; }
+   originalViewport = viewport.getAttribute('content');
+   viewportObserver = new MutationObserver(function(records){
+    if (!sourceMode && (records||[]).some(function(r){return r.target===viewport;})) {
+     var value=viewport.getAttribute('content');
+     if(value!==cardsViewport)originalViewport=value;
+    }
+   });
+   viewportObserver.observe(viewport,{attributes:true,attributeFilter:['content']});
+  }
+  if (cards) {
+   viewport.setAttribute('content',cardsViewport);
+   if (!viewport.isConnected) document.head.appendChild(viewport);
+  } else if (createdViewport) viewport.remove();
+  else if (originalViewport === null) viewport.removeAttribute('content');
+  else viewport.setAttribute('content',originalViewport);
+ }
  var links = new WeakMap(), savedStyles = new WeakMap(), signatures = {}, started = Date.now(), triedPackage = false, lastPhase, darkOverride = null;
  var props = ['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','line-height','letter-spacing','text-align','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','gap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
  var parcelProps = ['flex-basis','object-fit','overflow-x','overflow-y','text-overflow','-webkit-line-clamp','-webkit-box-orient','grid-template-columns','grid-template-rows','grid-column','grid-row','column-gap','row-gap'];
@@ -97,8 +120,8 @@
  function css(node, values) { Object.keys(values).forEach(function (key) { node.style.setProperty(key, values[key], 'important'); }); }
  function placeholder(identity) {
   return identity
-   ? '<div class="hc-pdd-placeholder hc-pdd-identity-placeholder" aria-label="正在加载身份码"><i></i><i></i><i></i></div>'
-   : '<div class="hc-pdd-placeholder hc-pdd-parcels-placeholder" aria-label="正在加载待取包裹"><i></i><i></i><i></i></div>';
+   ? '<div class="hc-pdd-placeholder hc-pdd-identity-placeholder" aria-label="正在加载身份码">' + HandyPickupMotion.loadingMarkup() + '</div>'
+   : '<div class="hc-pdd-placeholder hc-pdd-parcels-placeholder" aria-label="正在加载待取包裹">' + HandyPickupMotion.loadingMarkup() + '</div>';
  }
  function hideParcelExtra(node) {
   if (node.matches('.package-location-phone,.package-item-fill,.package-picture-check,.package-item-operate,.package-pick-disable-tip,.goods-return-tag')) return true;
@@ -267,7 +290,7 @@
   } else {
    var qr = root.querySelector('.identification-qr-code-svg').cloneNode(true);
    qr.classList.add('hc-pdd-qr');
-   css(qr, {width:'180px',height:'180px',transform:'none',display:'block',margin:'0 auto'});
+   css(qr, {width:'112px',height:'112px',transform:'none',display:'block',margin:'0 auto'});
    content.appendChild(qr);
   }
   var tips = copyPart(root.querySelector('.identification-code-tips'), 'hc-pdd-tips');
@@ -325,6 +348,7 @@
    var parcels = parts & PARCELS ? updatePending() : document.getElementById('hc-pdd-parcels').dataset.ready;
    if (!authenticated && (identity || parcels)) {
     authenticated = true;
+    shell.querySelector('#hc-logout').hidden = false;
     console.info('__HANDYCODE_PDD_AUTH__:signed-in');
    }
    if (identity && !parcels && !triedPackage && Date.now() - started > 1500) {
@@ -393,6 +417,7 @@
  function setActive(value) {
   if (active === value) return;
   active = value;
+  document.documentElement.toggleAttribute('data-hc-loading-paused', !active);
   if (!sourceObserver) return;
   if (active) {
    observeSource();
@@ -458,6 +483,7 @@
   }).catch(function () { finish(true); });
  }
  function workflow(show) {
+  cardViewport(!show);
   openingPhoneManagement = false;
   sourceMode = show;
   document.documentElement.classList.toggle('hc-pdd-source-mode', show);
@@ -501,46 +527,45 @@
    return;
   }
   if (bootObserver) { bootObserver.disconnect(); clearTimeout(bootTimeout); }
+  cardViewport(true);
   source.setAttribute('data-hc-pdd-source', '');
   var style = document.createElement('style');
   style.textContent = `
-html{height:auto!important;min-height:100vh!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important}
-body{display:block!important;height:auto!important;min-height:100vh!important;margin:0!important;padding:12px 10px 24px!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important;transition:background-color .2s}
+html{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;height:auto!important;min-height:100vh!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important}
+body{box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;display:block!important;height:auto!important;min-height:100vh!important;margin:0!important;padding:12px 10px 24px!important;background:#f5f6f8!important;overflow-x:hidden!important;overflow-y:auto!important;transition:background-color .2s}
 html:not(.hc-pdd-source-mode) body>:not(#hc-pdd-shell):not(#hc-pdd-back):not([data-hc-pdd-source]):not(script):not(style){display:none!important}
 [data-hc-pdd-source]{position:fixed!important;left:-100000px!important;top:0!important;width:100vw!important;height:100vh!important;transform:translateZ(0)!important;pointer-events:none!important}
 #hc-pdd-shell{--hc-action-ink:#536071;color:#242b37;font:14px/1.5 system-ui,sans-serif;overflow:visible;touch-action:pan-y}
 #hc-pdd-shell *{box-sizing:border-box}
 .hc-pdd-card{margin-bottom:14px;border:1px solid #e9ecf0;border-radius:16px;background:#fff;overflow:visible;transition:background-color .2s,border-color .2s}
+#hc-logout{display:flex;align-items:center;justify-content:center;width:min(100%,280px);min-height:44px;margin:16px auto 0;padding:8px 14px;border:1px solid #b9c3d0;border-radius:10px;color:#536071;text-decoration:none}
+#hc-logout[hidden]{display:none!important}
+html[data-hc-theme="dark"] #hc-logout{border-color:#58657a;color:#bcc6d6}
 .hc-pdd-heading{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #f0f2f5}
-.hc-pdd-heading h2{margin:0;font-size:16px;font-weight:650}
-.hc-pdd-heading button{border:0;background:none;color:var(--hc-action-ink);padding:5px 0;font:inherit;font-size:12px}
+.hc-pdd-card:first-child>.hc-pdd-heading{height:53px}
+.hc-pdd-heading h2{margin:0;font-size:16px;font-weight:650;white-space:nowrap}
+.hc-pdd-heading button,.hc-pdd-heading a{border:0;background:none;color:var(--hc-action-ink);padding:5px 0;font:inherit;font-size:12px;text-decoration:none}
 .hc-pdd-heading button:disabled{color:#8a929f}
 .hc-pdd-heading-actions{display:flex;align-items:center;gap:12px;white-space:nowrap}
-.hc-pdd-phone-manage:not([hidden]) + button{position:relative}
-.hc-pdd-phone-manage:not([hidden]) + button::before{content:'';position:absolute;left:-6px;top:50%;height:10px;border-left:1px solid #e1e5eb;transform:translateY(-50%)}
+.hc-pdd-heading-actions :is(button,a):not([hidden]) ~ :is(button,a):not([hidden]){position:relative}
+.hc-pdd-heading-actions :is(button,a):not([hidden]) ~ :is(button,a):not([hidden])::before{content:'';position:absolute;left:-6px;top:50%;height:10px;border-left:1px solid #d0d7e0;transform:translateY(-50%)}
+html[data-hc-theme="dark"] .hc-pdd-heading-actions ::before{border-color:#465164}
+@media(max-width:340px){.hc-pdd-heading{padding-inline:10px;gap:6px}.hc-pdd-heading h2{font-size:15px}.hc-pdd-heading-actions{gap:10px}.hc-pdd-heading button,.hc-pdd-heading a{font-size:11px}.hc-pdd-heading-actions :is(button,a):not([hidden]) ~ :is(button,a):not([hidden])::before{left:-5px}}
 .hc-pdd-content{position:relative;padding:16px 10px;min-width:0;overflow:visible}
-#hc-pdd-identity{padding:10px}
+#hc-pdd-identity{height:var(--hc-identity-height,202px);padding:10px;display:flex;align-items:center;justify-content:center}
 #hc-pdd-parcels{min-height:140px;padding:10px}
 .hc-pdd-parcel-groups{display:grid;gap:clamp(18px, 6vw, 28px);padding:8px clamp(6px, 3.5vw, 14px);min-width:0}
 .hc-pdd-parcel-group{min-width:0}
 .hc-pdd-parcel-group::before{content:'';position:absolute;left:7px;top:18px;bottom:6px;border-left:1px solid var(--hc-parcel-guide,#e9ecf0);pointer-events:none}
 .hc-pdd-station-heading::before{content:'';position:absolute;left:0;top:0;width:15px;height:16px;background-color:var(--hc-station-ink,#242b37);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 7v6.5h12V7M1 6l2-3.5h10L15 6v1c-1.1 1.1-2.4 1.1-3.5 0C10.4 8.1 9.1 8.1 8 7 6.9 8.1 5.6 8.1 4.5 7 3.4 8.1 2.1 8.1 1 7z'/%3E%3C/svg%3E") center/14px no-repeat;pointer-events:none}
 .hc-pdd-content[data-ready] > div{opacity:1}
-.hc-pdd-code{display:flex;flex-direction:column;align-items:center;gap:7px;padding:2px 8px}
+.hc-pdd-code{display:flex;flex-direction:column;align-items:center;width:100%;gap:7px;padding:2px 8px}
 .hc-pdd-phone{font-size:14px!important;text-align:center!important}
 .hc-pdd-barcode{display:block!important;width:100%!important;max-width:100%!important;height:100px!important;object-fit:contain;transform:none!important}
-.hc-pdd-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:10px 8px;overflow:hidden}
+.hc-pdd-barcode,.hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
+.hc-pdd-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 8px;overflow:hidden}
 .hc-pdd-identity-placeholder{height:100%;justify-content:center;gap:12px;padding:0 8px}
 .hc-pdd-parcels-placeholder{height:100%;justify-content:center;gap:10px}
-.hc-pdd-placeholder i{position:relative;display:block;flex-shrink:0;width:70%;height:14px;border-radius:7px;overflow:hidden;background:#edf0f4}
-.hc-pdd-identity-placeholder i:first-child{height:16px;width:32%}
-.hc-pdd-identity-placeholder i:nth-child(2){height:100px;width:100%}
-.hc-pdd-identity-placeholder i{flex-shrink:1}
-.hc-pdd-placeholder i::after{position:absolute;inset:0;content:'';background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);transform:translateX(-100%);animation:hc-pdd-shimmer 1.4s linear infinite;will-change:transform}
-.hc-pdd-parcels-placeholder i{flex-shrink:1;width:94%}
-.hc-pdd-parcels-placeholder i:last-child{height:22px;width:78%}
-@keyframes hc-pdd-shimmer{to{transform:translateX(100%)}}
-@media(prefers-reduced-motion:reduce){.hc-pdd-placeholder i::after{animation:none}}
 .hc-pdd-wait{padding:20px 8px;color:#89919d;text-align:center;font-size:12px}
 .hc-pdd-refresh-notice{margin:8px 0 0;padding:4px 8px;color:#5f6878}
 #hc-pdd-back{position:fixed;left:0;right:0;top:0;height:44px;z-index:2147483647;background:#fff;border-bottom:1px solid #e9ecf0;display:flex;align-items:center;padding:0 14px}
@@ -549,10 +574,7 @@ html[data-hc-theme="dark"],html[data-hc-theme="dark"] body,html[data-hc-theme="d
 html[data-hc-theme="dark"] #hc-pdd-shell{color:#e6eaf2}
 html[data-hc-theme="dark"] .hc-pdd-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-ink:#b3b3b3;background:#181c24;border-color:#262c36}
 html[data-hc-theme="dark"] .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
-html[data-hc-theme="dark"] .hc-pdd-heading button,html[data-hc-theme="dark"] #hc-pdd-back button{color:#ff855e}
-html[data-hc-theme="dark"] .hc-pdd-barcode,html[data-hc-theme="dark"] .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
-html[data-hc-theme="dark"] .hc-pdd-placeholder i{background:#232936}
-html[data-hc-theme="dark"] .hc-pdd-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+html[data-hc-theme="dark"] .hc-pdd-heading button,html[data-hc-theme="dark"] .hc-pdd-heading a,html[data-hc-theme="dark"] #hc-pdd-back button{color:#ff855e}
 html[data-hc-theme="dark"] .hc-pdd-wait,html[data-hc-theme="dark"] .hc-pdd-warning,html[data-hc-theme="dark"] .hc-pdd-tips{color:#8e98aa!important}
 html[data-hc-theme="dark"] #hc-pdd-back{background:#181c24;border-bottom-color:#262c36}
 @media(prefers-color-scheme:dark){
@@ -560,10 +582,7 @@ html:not([data-hc-theme="light"]),html:not([data-hc-theme="light"]) body,html:no
 html:not([data-hc-theme="light"]) #hc-pdd-shell{color:#e6eaf2}
 html:not([data-hc-theme="light"]) .hc-pdd-card{--hc-card-surface:#181c24;--hc-parcel-guide:#465164;--hc-station-ink:#b3b3b3;background:#181c24;border-color:#262c36}
 html:not([data-hc-theme="light"]) .hc-pdd-heading{border-bottom-color:#232833;color:#e6eaf2}
-html:not([data-hc-theme="light"]) .hc-pdd-heading button,html:not([data-hc-theme="light"]) #hc-pdd-back button{color:#ff855e}
-html:not([data-hc-theme="light"]) .hc-pdd-barcode,html:not([data-hc-theme="light"]) .hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
-html:not([data-hc-theme="light"]) .hc-pdd-placeholder i{background:#232936}
-html:not([data-hc-theme="light"]) .hc-pdd-placeholder i::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+html:not([data-hc-theme="light"]) .hc-pdd-heading button,html:not([data-hc-theme="light"]) .hc-pdd-heading a,html:not([data-hc-theme="light"]) #hc-pdd-back button{color:#ff855e}
 html:not([data-hc-theme="light"]) .hc-pdd-wait,html:not([data-hc-theme="light"]) .hc-pdd-warning,html:not([data-hc-theme="light"]) .hc-pdd-tips{color:#8e98aa!important}
 html:not([data-hc-theme="light"]) #hc-pdd-back{background:#181c24;border-bottom-color:#262c36}
 }
@@ -573,7 +592,14 @@ html.hc-pdd-source-mode,html.hc-pdd-source-mode body{overflow:hidden!important}
 `;
   document.head.appendChild(style);
   shell = document.createElement('main'); shell.id = 'hc-pdd-shell';
-  shell.innerHTML = '<section class="hc-pdd-card"><div class="hc-pdd-heading"><h2>身份码</h2><button type="button" data-hc-pdd-refresh="identity">刷新</button></div><div class="hc-pdd-content" id="hc-pdd-identity">' + placeholder(true) + '</div></section><section class="hc-pdd-card"><div class="hc-pdd-heading"><h2>待取包裹</h2><div class="hc-pdd-heading-actions"><button type="button" class="hc-pdd-phone-manage" hidden>添加手机号</button><button type="button" data-hc-pdd-refresh="parcels">刷新</button></div></div><div class="hc-pdd-content" id="hc-pdd-parcels">' + placeholder(false) + '</div></section>';
+  shell.innerHTML = '<section class="hc-pdd-card"><div class="hc-pdd-heading"><h2>身份码</h2><button type="button" data-hc-pdd-refresh="identity">刷新</button></div><div class="hc-pdd-content" id="hc-pdd-identity">' + placeholder(true) + '</div></section><section class="hc-pdd-card"><div class="hc-pdd-heading"><h2>待取包裹</h2><div class="hc-pdd-heading-actions"><a class="hc-pdd-add-package" href="https://m.pinduoduo.net/mdkd/add-package">添加包裹</a><button type="button" class="hc-pdd-phone-manage" hidden>添加手机号</button><button type="button" data-hc-pdd-refresh="parcels">刷新</button></div></div><div class="hc-pdd-content" id="hc-pdd-parcels">' + placeholder(false) + '</div></section>';
+  var logout = document.createElement('a');
+  logout.id = 'hc-logout';
+  logout.href = 'https://handycode.invalid/actions/logout';
+  logout.setAttribute('role', 'button');
+  logout.textContent = '退出登录';
+  logout.hidden = true;
+  shell.appendChild(logout);
   document.body.appendChild(shell);
   document.getElementById('hc-pdd-parcels').style.height = '140px';
   HandyPickupMotion.bindZoom(document.getElementById('hc-pdd-identity'), '.hc-pdd-barcode,.hc-pdd-qr');
@@ -606,6 +632,7 @@ html.hc-pdd-source-mode,html.hc-pdd-source-mode body{overflow:hidden!important}
    else queue(BOTH);
   });
   window.addEventListener('pagehide', function () {
+   if(viewportObserver)viewportObserver.disconnect();
    sourceObserver.disconnect(); clearInterval(timer); clearTimeout(lazyCheck); clearTimeout(startupCheck);
    clearTimeout(projectionTimer);
   });

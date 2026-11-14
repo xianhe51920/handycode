@@ -8,7 +8,7 @@ const motion = readFileSync(new URL('../app/src/main/assets/pickup-motion.js', i
 // Synthetic official-shaped DOM: deliberately rotated, with unrelated content
 // and live source buttons. No real account or barcode data belongs in fixtures.
 function fixture({path='/mdkd/package', subframe=false, parcels='empty', delayedSource=false}={}) {
- const {window, document} = parseHTML(`<html><head></head><body><div id="__next">
+ const {window, document} = parseHTML(`<html><head><meta name="viewport" content="width=375,initial-scale=1"></head><body><div id="__next">
  <div class="example_identification-code-container__hash">
   <div class="identification-code-tips">自动更新 <span>切换灯条身份码</span></div>
   <div style="transform:rotate(90deg)">
@@ -49,6 +49,11 @@ function fixture({path='/mdkd/package', subframe=false, parcels='empty', delayed
 let f=fixture();
 const shell=f.document.querySelector('#hc-pdd-shell');
 assert.equal(shell.querySelectorAll('.hc-pdd-card').length,2);
+assert.match(f.document.querySelector('meta[name="viewport"]').content,/width=device-width/,'Cards use the same viewport scale as the native loading cover');
+const logout = shell.querySelector('#hc-logout');
+assert.equal(logout.previousElementSibling.querySelector('.hc-pdd-heading h2').textContent,'待取包裹');
+assert.equal(logout.hidden,false,'The authenticated logout action follows both cards');
+assert.equal(logout.getAttribute('href'),'https://handycode.invalid/actions/logout');
 assert.ok(f.document.querySelector('#__next').hasAttribute('data-hc-pdd-source'));
 assert.ok(!shell.textContent.includes('推荐商品广告'));
 assert.ok(!shell.textContent.includes('个人中心'));
@@ -64,7 +69,9 @@ assert.equal(f.phases.filter(value=>value==='__HANDYCODE_PDD_AUTH__:signed-in').
 shell.querySelector('#hc-pdd-parcels button').click();
 assert.equal(f.clicks,1,'Official source handler still receives clicks');
 assert.equal(shell.hidden,true,'Official forms open in an explicit source workflow');
+assert.equal(f.document.querySelector('meta[name="viewport"]').content,'width=375,initial-scale=1','Restore the official viewport for original workflows');
 assert.equal(f.window.HandyPddLayout.back(),true);
+assert.match(f.document.querySelector('meta[name="viewport"]').content,/width=device-width/,'Returning to cards restores the device viewport');
 assert.equal(shell.hidden,false);
 assert.equal(f.window.HandyPddLayout.back(),false);
 f.context.location.pathname='/mdkd/cellPhoneList';
@@ -100,7 +107,7 @@ assert.equal(shell.querySelectorAll('[data-hc-pdd-refresh]')[1].disabled,false,'
 assert.equal(shell.querySelector('.hc-pdd-barcode'),null,'Refresh immediately removes the old code');
 f.window.HandyPddLayout.update();
 assert.equal(shell.querySelector('.hc-pdd-barcode'),null,'Polling cannot restore stale content during the request');
-assert.equal(shell.querySelectorAll('#hc-pdd-identity .hc-pdd-placeholder i').length,3);
+assert.equal(shell.querySelectorAll('#hc-pdd-identity .hc-load-dots span').length,3);
 await f.finishRefresh('identity');
 assert.deepEqual(f.refreshCalls,['identity'],'Only the requested callback runs and repeat taps coalesce');
 assert.equal(f.reloads,0,'A section refresh never reloads the document');
@@ -137,6 +144,9 @@ assert.match(updatedParcels.textContent,/TEST-456.*测试快递/);
 assert.doesNotMatch(updatedParcels.textContent,/支持退换货|导航|电话|仅支持自助取件|照片|全选|找人代取|通知站长取件/);
 assert.equal(updatedParcels.querySelector('img[alt="checkbox"],img[alt="menu"]'),null);
 const phoneFlow=fixture();
+const phoneViewport=phoneFlow.document.querySelector('meta[name="viewport"]');
+phoneViewport.content='width=375,initial-scale=0.96';
+phoneFlow.mutate(phoneViewport);
 const phoneShell=phoneFlow.document.querySelector('#hc-pdd-shell');
 phoneShell.querySelector('.hc-pdd-phone-manage').click();
 assert.equal(phoneFlow.clicks,1,'Phone management still invokes the official action');
@@ -147,6 +157,7 @@ assert.equal(phoneShell.hidden,false,'Changing the route alone must not expose t
 phoneFlow.document.querySelector('[class*="identification-code-container"]').remove();
 phoneFlow.mutate(phoneFlow.document.getElementById('__next'));
 assert.equal(phoneShell.hidden,true,'The official phone page can appear after the old DOM is gone');
+assert.equal(phoneViewport.content,'width=375,initial-scale=0.96','Restore viewport settings written late by the official page');
 // Background updates keep concrete, visible nodes; there is no persistent
 // opacity-zero backwards-fill CSS to reveal an empty card on the next swipe.
 f=fixture();

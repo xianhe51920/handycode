@@ -3,32 +3,17 @@ package com.fairycrane.handycode;
 import android.content.Context;
 import android.content.res.Configuration;
 
-/** Centralized palette and dark-mode resolution (follows system by default). */
+/** Centralized palette and initial appearance. */
 public final class AppTheme {
-    public static final int MODE_SYSTEM = 0;
     public static final int MODE_LIGHT = 1;
     public static final int MODE_DARK = 2;
     public static final int ACCENT = 0xffeb6238;
 
     private AppTheme() {}
 
-    public static boolean isDark(Context context, int mode) {
-        if (mode == MODE_DARK) return true;
-        if (mode == MODE_LIGHT) return false;
+    public static int systemDefault(Context context) {
         int uiMode = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return uiMode == Configuration.UI_MODE_NIGHT_YES;
-    }
-
-    public static int nextMode(int mode) {
-        if (mode == MODE_SYSTEM) return MODE_DARK;
-        if (mode == MODE_DARK) return MODE_LIGHT;
-        return MODE_SYSTEM;
-    }
-
-    public static String modeLabel(int mode) {
-        if (mode == MODE_DARK) return "深色";
-        if (mode == MODE_LIGHT) return "浅色";
-        return "自动";
+        return uiMode == Configuration.UI_MODE_NIGHT_YES ? MODE_DARK : MODE_LIGHT;
     }
 
     public static int bg(boolean dark) { return dark ? 0xff0f1218 : 0xfff7f8fb; }
@@ -39,6 +24,4 @@ public final class AppTheme {
     public static int border(boolean dark) { return dark ? 0xff262c36 : 0xffe9ecf0; }
     public static int divider(boolean dark) { return dark ? 0xff232833 : 0xfff0f2f5; }
     public static int accentText(boolean dark) { return dark ? 0xffff8e6b : 0xffbd451f; }
-    public static int shimmerBase(boolean dark) { return dark ? 0xff232936 : 0xffedf0f4; }
-    public static int shimmerPeak(boolean dark) { return dark ? 0x38ffffff : 0xccffffff; }
 }

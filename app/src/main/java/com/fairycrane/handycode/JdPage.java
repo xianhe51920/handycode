@@ -2,19 +2,21 @@ package com.fairycrane.handycode;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Canvas;
-import android.graphics.LinearGradient;
+import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.RectF;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.http.SslError;
 import android.os.SystemClock;
 import android.transition.AutoTransition;
 import android.transition.TransitionManager;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
@@ -24,6 +26,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -34,21 +37,27 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.function.Consumer;
 
-/** Official JD login and order capture, presented in the shared pickup-card style. */
+/** Official JD identity and orders, presented in one shared pickup-card scroll view. */
 final class JdPage extends FrameLayout {
     private static final String ORDERS_BUSY = "orders_busy";
+    static final long MIN_REFRESH_MS = 320;
     private final Consumer<Boolean> session;
     private final ScrollView results;
-    private final LinearLayout card, body, heading;
+    private final LinearLayout stack, card, body, heading;
+    private final JdIdentityCard identity;
     private final TextView title, refresh;
+    private final Button logout;
     private final View divider;
     private final Skeleton skeleton;
     private WebView web;
     private boolean dark, paused = true, destroyed, polling, inFlight, loading = true;
     private boolean loginVisible;
+    private boolean orderSignedIn, identitySignedIn;
+    private boolean verificationVisible;
     private int generation;
-    private long lastProbe, deadline;
+    private long lastProbe, deadline, loadingStarted;
     private String script = "", lastSnapshot = "", error = "";
+    private String loginThemeScript;
     private final Runnable tick = () -> {
         polling = false;
         if (paused || destroyed || web == null) return;
@@ -59,7 +68,7 @@ final class JdPage extends FrameLayout {
         if (!paused && loading) fail("读取订单超时，请稍后重试。");
     };
 
-    JdPage(Context context, Consumer<Boolean> session) {
+    JdPage(Context context, Consumer<Boolean> session, Runnable requestLogout) {
         super(context);
         this.session = session;
         results = new ScrollView(context);
@@ -67,10 +76,16 @@ final class JdPage extends FrameLayout {
         results.setPadding(dp(10), dp(12), dp(10), dp(24));
         results.setFillViewport(false);
         addView(results, new FrameLayout.LayoutParams(-1, -1));
+        stack = new LinearLayout(context);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        results.addView(stack, new ScrollView.LayoutParams(-1, -2));
+        identity = new JdIdentityCard(context, this::identityChanged,
+            () -> results.getHeight() - dp(26), new Skeleton(context));
+        addIdentityToStack();
         card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setClipToOutline(true);
-        results.addView(card, new ScrollView.LayoutParams(-1, -2));
+        stack.addView(card, new LinearLayout.LayoutParams(-1, -2));
         heading = new LinearLayout(context);
         heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -87,18 +102,56 @@ final class JdPage extends FrameLayout {
         body.setPadding(dp(16), dp(16), dp(16), dp(16));
         body.setMinimumHeight(dp(140));
         card.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        logout = new Button(context);
+        logout.setText("退出登录");
+        logout.setTextSize(14);
+        logout.setAllCaps(false);
+        logout.setMinimumWidth(dp(280));
+        logout.setMinimumHeight(dp(44));
+        logout.setPadding(dp(14), dp(8), dp(14), dp(8));
+        logout.setStateListAnimator(null);
+        logout.setVisibility(GONE);
+        logout.setOnClickListener(view -> requestLogout.run());
+        LinearLayout.LayoutParams logoutParams = new LinearLayout.LayoutParams(-2, -2);
+        logoutParams.gravity = Gravity.CENTER_HORIZONTAL;
+        logoutParams.topMargin = dp(16);
+        stack.addView(logout, logoutParams);
         skeleton = new Skeleton(context);
         try {
             script = WebAssets.readText(context.getAssets(), "jd-orders.js");
+            loginThemeScript = WebAssets.readText(context.getAssets(), "login-agreements.js") + "\n"
+                + WebAssets.readText(context.getAssets(), "jd-login-theme.js");
         } catch (IOException unavailable) {
             loading = false;
             error = "京东页面资源读取失败，请重新安装。";
         }
-        setDark(AppTheme.isDark(context, AppTheme.MODE_SYSTEM));
+        setDark(AppTheme.systemDefault(context) == AppTheme.MODE_DARK);
     }
 
     private int dp(int value) {
         return (int)(value * getResources().getDisplayMetrics().density + .5f);
+    }
+
+    private void addIdentityToStack() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(14);
+        stack.addView(identity, 0, params);
+    }
+
+    private void identityChanged() {
+        if (destroyed) return;
+        boolean wasSignedIn = identitySignedIn;
+        identitySignedIn = identity.isSignedIn();
+        session.accept(orderSignedIn || identitySignedIn);
+        if (!wasSignedIn && identitySignedIn && loginVisible) reload();
+        updatePresentation();
+    }
+
+    private void orderSession(boolean value) {
+        boolean wasSignedIn = orderSignedIn;
+        orderSignedIn = value;
+        session.accept(orderSignedIn || identitySignedIn);
+        if (value && !wasSignedIn) identity.retryAfterSharedLogin();
     }
 
     private TextView text(String value, int size) {
@@ -112,7 +165,8 @@ final class JdPage extends FrameLayout {
 
     private TextView action(String label, Runnable run) {
         TextView button = text(label, 12);
-        button.setGravity(Gravity.CENTER);
+        button.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        button.setMinWidth((int)Math.ceil(button.getPaint().measureText("刷新中")));
         button.setPadding(0, dp(5), 0, dp(5));
         button.setOnClickListener(view -> run.run());
         return button;
@@ -120,6 +174,7 @@ final class JdPage extends FrameLayout {
 
     void setDark(boolean value) {
         dark = value;
+        identity.setDark(value);
         setBackgroundColor(AppTheme.bg(dark));
         results.setBackgroundColor(AppTheme.bg(dark));
         GradientDrawable background = new GradientDrawable();
@@ -129,13 +184,34 @@ final class JdPage extends FrameLayout {
         card.setBackground(background);
         title.setTextColor(AppTheme.ink(dark));
         divider.setBackgroundColor(AppTheme.divider(dark));
-        if (web != null) web.setBackgroundColor(AppTheme.bg(dark));
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(Color.TRANSPARENT);
+        outline.setCornerRadius(dp(10));
+        outline.setStroke(dp(1), dark ? 0xff58657a : 0xffb9c3d0);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(Color.WHITE);
+        mask.setCornerRadius(dp(10));
+        logout.setBackground(new RippleDrawable(ColorStateList.valueOf(0x206b778a), outline, mask));
+        logout.setTextColor(dark ? 0xffbcc6d6 : 0xff536071);
+        if (web != null) {
+            web.setBackgroundColor(AppTheme.bg(dark));
+            if (isLoginHost(web.getUrl())) web.evaluateJavascript(loginThemeUpdate(), null);
+        }
         renderBody(false);
+    }
+
+    private static boolean isLoginHost(String url) {
+        return url != null && "plogin.m.jd.com".equalsIgnoreCase(android.net.Uri.parse(url).getHost());
+    }
+
+    private String loginThemeUpdate() {
+        return "window.HandyCodeJdLoginTheme && window.HandyCodeJdLoginTheme.setDark(" + dark + ");\n";
     }
 
     void showPage() {
         if (destroyed) return;
         paused = false;
+        identity.resumePage();
         if (web == null) createWeb();
         if (web != null) {
             web.onResume();
@@ -160,7 +236,16 @@ final class JdPage extends FrameLayout {
         settings.setSupportMultipleWindows(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        WebView loginView = web;
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage message) {
+                if (web != loginView || !isLoginHost(loginView.getUrl())) return false;
+                String value = message.message();
+                if ("__HANDYCODE_JD_VERIFICATION__:open".equals(value)) verificationVisible = true;
+                else if ("__HANDYCODE_JD_VERIFICATION__:closed".equals(value)) verificationVisible = false;
+                else return false;
+                return true;
+            }
             @Override public void onPermissionRequest(PermissionRequest request) { request.deny(); }
         });
         web.setWebViewClient(new WebViewClient() {
@@ -204,7 +289,7 @@ final class JdPage extends FrameLayout {
                     removeView(view);
                     web = null;
                     view.destroy();
-                    session.accept(false);
+                    orderSession(false);
                     loginVisible = false;
                     fail("京东网页组件已停止，请点刷新重新打开。");
                 }
@@ -231,8 +316,10 @@ final class JdPage extends FrameLayout {
     }
 
     private void beginLoading() {
+        loadingStarted = SystemClock.elapsedRealtime();
         loading = true;
         loginVisible = false;
+        verificationVisible = false;
         error = "";
         deadline = SystemClock.elapsedRealtime() + 18000;
         if (!paused) armTimeout();
@@ -243,17 +330,22 @@ final class JdPage extends FrameLayout {
     private void sample() {
         final WebView expected = web;
         final int token = generation;
-        if (expected == null || paused || destroyed || inFlight || !JdUrlPolicy.allowed(expected.getUrl())) return;
+        if (expected == null || paused || destroyed || inFlight) return;
+        String url = expected.getUrl();
+        if (!JdUrlPolicy.allowed(url)) return;
+        // Theme the login document before the first probe can reveal it.
+        String probe = !loginVisible && loginThemeScript != null && isLoginHost(url)
+            ? loginThemeScript + "\n" + loginThemeUpdate() + script : script;
         inFlight = true;
         lastProbe = SystemClock.elapsedRealtime();
-        expected.evaluateJavascript(script, result -> {
+        expected.evaluateJavascript(probe, result -> {
             if (destroyed || web != expected || generation != token) return;
             inFlight = false;
             try {
                 JSONObject data = new JSONObject(result);
                 if (!data.optString("href").equals(expected.getUrl())) return;
                 if (data.optBoolean("login")) {
-                    session.accept(false);
+                    orderSession(false);
                     loginVisible = true;
                     lastSnapshot = "";
                     loading = false;
@@ -261,30 +353,44 @@ final class JdPage extends FrameLayout {
                     updatePresentation();
                     return;
                 }
-                String problem = data.optString("problem");
-                if (!problem.isEmpty()) {
-                    String message = "busy".equals(problem) ? ORDERS_BUSY : "京东官方订单页暂时无法加载，请稍后重试。";
-                    if (loading || !message.equals(error)) fail(message);
-                    return;
-                }
-                if (!data.optBoolean("ready")) return;
-                session.accept(true);
-                String next = data.toString();
-                boolean changed = !next.equals(lastSnapshot) || loading || loginVisible || !error.isEmpty();
-                lastSnapshot = next;
-                loading = false;
-                loginVisible = false;
-                error = "";
-                removeCallbacks(timeout);
-                if (changed) renderBody(true);
-                updatePresentation();
+                if (!data.optBoolean("ready") && data.optString("problem").isEmpty()) return;
+                long hold = loading ? Math.max(0, MIN_REFRESH_MS - (SystemClock.elapsedRealtime() - loadingStarted)) : 0;
+                if (hold > 0) {
+                    inFlight = true;
+                    postDelayed(() -> {
+                        if (destroyed || web != expected || generation != token) return;
+                        inFlight = false;
+                        acceptSnapshot(data);
+                    }, hold);
+                } else acceptSnapshot(data);
             } catch (JSONException ignored) {
                 // Incomplete navigation is sampled again until the bounded timeout.
             }
         });
     }
 
+    private void acceptSnapshot(JSONObject data) {
+        String problem = data.optString("problem");
+        if (!problem.isEmpty()) {
+            String message = "busy".equals(problem) ? ORDERS_BUSY : "京东官方订单页暂时无法加载，请稍后重试。";
+            if (loading || !message.equals(error)) fail(message);
+            return;
+        }
+        orderSession(true);
+        String next = data.toString();
+        boolean changed = !next.equals(lastSnapshot) || loading || loginVisible || !error.isEmpty();
+        lastSnapshot = next;
+        loading = false;
+        loginVisible = false;
+        error = "";
+        removeCallbacks(timeout);
+        if (changed) renderBody(true);
+        updatePresentation();
+    }
+
     private void fail(String message) {
+        generation++;
+        inFlight = false;
         loading = false;
         loginVisible = false;
         error = message;
@@ -294,12 +400,23 @@ final class JdPage extends FrameLayout {
     }
 
     private void updatePresentation() {
-        boolean showWeb = web != null && loginVisible;
+        boolean identityLogin = identity.wantsLogin();
+        if (identityLogin && identity.getParent() != this) {
+            ((ViewGroup) identity.getParent()).removeView(identity);
+            addView(identity, new FrameLayout.LayoutParams(-1, -1));
+            identity.setDark(dark);
+        } else if (!identityLogin && identity.getParent() != stack) {
+            ((ViewGroup) identity.getParent()).removeView(identity);
+            addIdentityToStack();
+            identity.setDark(dark);
+        }
+        boolean showWeb = web != null && loginVisible && !identityLogin;
         if (web != null) {
             web.setVisibility(showWeb ? VISIBLE : INVISIBLE);
             web.setImportantForAccessibility(showWeb ? IMPORTANT_FOR_ACCESSIBILITY_AUTO : IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         }
-        results.setVisibility(showWeb ? GONE : VISIBLE);
+        results.setVisibility(showWeb || identityLogin ? GONE : VISIBLE);
+        logout.setVisibility(!showWeb && !identityLogin && (orderSignedIn || identitySignedIn) ? VISIBLE : GONE);
         skeleton.setAnimating(loading && !paused && !showWeb);
     }
 
@@ -307,8 +424,9 @@ final class JdPage extends FrameLayout {
         TransitionManager.endTransitions(card);
         if (animate && !paused && results.isShown() && ValueAnimator.areAnimatorsEnabled()) {
             AutoTransition transition = new AutoTransition();
-            transition.setDuration(220);
-            transition.excludeTarget(skeleton, true);
+            transition.setDuration(140);
+            transition.excludeTarget(heading, true);
+            transition.excludeChildren(heading, true);
             TransitionManager.beginDelayedTransition(card, transition);
         }
         int oldHeight = body.getHeight();
@@ -384,6 +502,8 @@ final class JdPage extends FrameLayout {
 
     void resetSessionView() {
         pausePage();
+        identity.resetSessionView();
+        orderSignedIn = identitySignedIn = false;
         generation++;
         inFlight = false;
         lastSnapshot = "";
@@ -407,17 +527,27 @@ final class JdPage extends FrameLayout {
         removeCallbacks(timeout);
         polling = false;
         skeleton.setAnimating(false);
+        identity.pausePage();
         if (web != null) web.onPause();
     }
 
     void resumePage(boolean active) { if (active) showPage(); else pausePage(); }
 
+    boolean blocksPageSwipe() { return identity.blocksPageSwipe() || loginVisible && verificationVisible; }
+
+    void checkVisibleScanCode(android.webkit.ValueCallback<String> callback) {
+        if (loginVisible) callback.onReceiveValue("false");
+        else identity.checkVisibleScanCode(callback);
+    }
+
     void scrollFocusedInput() {
+        identity.scrollFocusedInput();
         if (web != null && loginVisible) web.evaluateJavascript(
             "(function(){var e=document.activeElement;if(e&&e.matches('input,textarea'))e.scrollIntoView({block:'center'});})()", null);
     }
 
     boolean goBack() {
+        if (identity.goBack()) return true;
         if (loginVisible && web != null && web.canGoBack()) { web.goBack(); return true; }
         return false;
     }
@@ -425,9 +555,10 @@ final class JdPage extends FrameLayout {
     void destroyPage() {
         destroyed = true;
         resetSessionView();
+        identity.destroyPage();
     }
 
-    private final class Skeleton extends View {
+    final class Skeleton extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private boolean animating;
         private long started;
@@ -444,25 +575,11 @@ final class JdPage extends FrameLayout {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float width = getWidth(), center = getHeight() / 2f;
-            bar(canvas, width * .68f, center - dp(48), dp(14));
-            bar(canvas, width, center - dp(24), dp(54));
-            bar(canvas, width * .68f, center + dp(40), dp(14));
+            float progress = animating ? ((SystemClock.uptimeMillis() - started) % 1100L) / 1100f : 0f;
+            LoadingDots.draw(canvas, paint, getWidth() / 2f, getHeight() / 2f,
+                getResources().getDisplayMetrics().density, dark, progress);
             if (animating && isShown()) postInvalidateOnAnimation();
         }
 
-        private void bar(Canvas canvas, float width, float top, float height) {
-            float left = (getWidth() - width) / 2;
-            RectF bounds = new RectF(left, top, left + width, top + height);
-            paint.setShader(null);
-            paint.setColor(AppTheme.shimmerBase(dark));
-            canvas.drawRoundRect(bounds, dp(7), dp(7), paint);
-            float progress = animating ? ((SystemClock.uptimeMillis() - started) % 1400L) / 1400f : 0f;
-            float center = left - width * .4f + progress * width * 1.8f;
-            paint.setShader(new LinearGradient(center - width * .35f, 0, center + width * .35f, 0,
-                new int[]{0x00ffffff, AppTheme.shimmerPeak(dark), 0x00ffffff}, null, Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(bounds, dp(7), dp(7), paint);
-            paint.setShader(null);
-        }
     }
 }

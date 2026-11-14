@@ -2,7 +2,6 @@ package com.fairycrane.handycode;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
@@ -63,7 +62,7 @@ public final class MainActivity extends Activity {
         return activityResumed && switchMotion != null && hasWindowFocus() && !pageDragging && switchAnimation == null
             && Math.abs(switchMotion.position() - selected) < 0.001f
             && popupView == null && !SiteDataClearer.isBusy()
-            && (selected == TAB_CAINIAO || selected == TAB_PDD || (selected == TAB_TAOBAO && combinedDisplayed
+            && (selected == TAB_CAINIAO || selected == TAB_PDD || selected == TAB_JD || (selected == TAB_TAOBAO && combinedDisplayed
                 && transitionPanel != null && transitionPanel.getVisibility() != View.VISIBLE));
     }
 
@@ -83,6 +82,7 @@ public final class MainActivity extends Activity {
         };
         if (page == TAB_PDD) pddPage.checkVisibleScanCode(callback);
         else if (page == TAB_CAINIAO) cainiaoPage.checkVisibleScanCode(callback);
+        else if (page == TAB_JD) jdPage.checkVisibleScanCode(callback);
         else if (browser != null) browser.evaluateJavascript(ScanCodeVisibility.SCRIPT, callback);
         else callback.onReceiveValue("false");
     }
@@ -110,9 +110,12 @@ public final class MainActivity extends Activity {
     private final Handler taobaoHandler = new Handler(Looper.getMainLooper());
     private final TaobaoLoadGuard taobaoLoad = new TaobaoLoadGuard();
     private final Runnable taobaoDeadline = this::checkTaobaoDeadline;
-    private boolean taobaoLoadFailed, taobaoLoginVisible, taobaoIdentityLoading;
+    private boolean taobaoLoadFailed, taobaoLoginVisible;
     private int selected = 0;
-    private int themeMode = AppTheme.MODE_SYSTEM;
+    private int themeMode;
+    private float chromeLight;
+    private ThemeTransition themeTransition;
+    private boolean themePreview;
     private LinearLayout rootLayout;
     private LinearLayout headerLayout;
     private View headerDivider;
@@ -122,9 +125,7 @@ public final class MainActivity extends Activity {
     private FrameLayout titleViewport;
     private final View[] titleRows = new View[PAGE_COUNT];
     private final TextView[] titleLabels = new TextView[PAGE_COUNT];
-    private Button themeButton;
-    private Button logoutButton;
-    private android.graphics.drawable.Drawable logoutIcon;
+    private GlassThemeSwitch themeButton;
     private final boolean[] signedIn = new boolean[PAGE_COUNT];
     private SwitchMotion switchMotion;
     private android.animation.ValueAnimator switchAnimation;
@@ -136,11 +137,10 @@ public final class MainActivity extends Activity {
     private long transitionStarted;
     private int transitionGeneration;
     private boolean transitionRevealQueued;
-    private Dialog popupDialog;
     private WebView popupView;
     private WebView phoneAddView;
     private boolean phoneAddPageStarted;
-    private boolean popupPhoneManagement;
+    private boolean popupInlineWorkflow;
     private long lastBlockedNotice = 0;
 
     private final SiteDataClearer.Observer logoutListener = new SiteDataClearer.Observer() {
@@ -180,7 +180,7 @@ public final class MainActivity extends Activity {
             renderSwitchPosition();
         }
         @Override public void onFinished(int page, boolean success) {
-            updateLogoutControls();
+            updateNavigationEnabled();
             if (!success) android.widget.Toast.makeText(MainActivity.this,
                 "退出未完成，请检查 WebView 更新后重试", android.widget.Toast.LENGTH_LONG).show();
             if (activityResumed && !isFinishing() && !isDestroyed()) completeSelection(selected);
@@ -188,22 +188,22 @@ public final class MainActivity extends Activity {
     };
 
     private boolean isDark() {
-        return AppTheme.isDark(this, themeMode);
+        return themeMode == AppTheme.MODE_DARK;
     }
 
-    private void cycleThemeMode() {
-        themeMode = AppTheme.nextMode(themeMode);
+    private void toggleThemeMode() {
+        themeMode = isDark() ? AppTheme.MODE_LIGHT : AppTheme.MODE_DARK;
         getSharedPreferences(PREF_UI, MODE_PRIVATE).edit().putInt(KEY_THEME_MODE, themeMode).apply();
-        applyTheme();
-        String modeDesc = themeMode == AppTheme.MODE_SYSTEM ? "夜间模式：跟随系统"
-            : themeMode == AppTheme.MODE_DARK ? "已切换为深色模式" : "已切换为浅色模式";
-        android.widget.Toast.makeText(this, modeDesc, android.widget.Toast.LENGTH_SHORT).show();
-    }
-
-    private String themeButtonText() {
-        if (themeMode == AppTheme.MODE_DARK) return "☾ 深色";
-        if (themeMode == AppTheme.MODE_LIGHT) return "☀ 浅色";
-        return "◐ 自动";
+        themeButton.setDark(isDark());
+        if (themePreview) return;
+        if (!activityResumed || themeTransition == null) {
+            applyTheme();
+            return;
+        }
+        float start = chromeLight;
+        float end = isDark() ? 0f : 1f;
+        themeTransition.start(painted -> applyThemeContentAndWait(isDark(), painted),
+            value -> applyThemeChrome(start + (end - start) * value));
     }
 
     @Override public void onConfigurationChanged(Configuration newConfig) {
@@ -214,8 +214,6 @@ public final class MainActivity extends Activity {
     private void updateSystemBars(boolean dark) {
         Window window = getWindow();
         if (window == null) return;
-        window.setStatusBarColor(AppTheme.surface(dark));
-        window.setNavigationBarColor(AppTheme.bg(dark));
         View decor = window.getDecorView();
         if (decor == null) return;
         if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -235,28 +233,48 @@ public final class MainActivity extends Activity {
     }
 
     private void applyTheme() {
-        boolean dark = isDark();
-        updateSystemBars(dark);
+        themePreview = false;
+        if (themeTransition != null) themeTransition.cancel();
+        applyThemeChrome(isDark() ? 0f : 1f);
+        if (themeButton != null) themeButton.setDark(isDark());
+        applyThemeContent(isDark());
+    }
+
+    private void applyThemeChrome(float light) {
+        boolean darkInk = light >= .5f;
+        boolean changedInk = darkInk != (chromeLight >= .5f);
+        chromeLight = light;
+        int bg = blendThemeColor(AppTheme.bg(true), AppTheme.bg(false), light);
+        int surface = blendThemeColor(AppTheme.surface(true), AppTheme.surface(false), light);
+        if (rootLayout != null) rootLayout.setBackgroundColor(bg);
+        if (headerLayout != null) headerLayout.setBackgroundColor(surface);
+        if (headerDivider != null) {
+            headerDivider.setBackgroundColor(blendThemeColor(AppTheme.divider(true), AppTheme.divider(false), light));
+        }
+        Window window = getWindow();
+        window.setStatusBarColor(surface);
+        window.setNavigationBarColor(bg);
+        if (changedInk || light == 0f || light == 1f) {
+            for (TextView label : titleLabels) {
+                if (label != null) label.setTextColor(AppTheme.ink(!darkInk));
+            }
+            updateSystemBars(!darkInk);
+        }
+    }
+
+    private static int blendThemeColor(int dark, int light, float amount) {
+        return Color.rgb(
+            Math.round(Color.red(dark) + (Color.red(light) - Color.red(dark)) * amount),
+            Math.round(Color.green(dark) + (Color.green(light) - Color.green(dark)) * amount),
+            Math.round(Color.blue(dark) + (Color.blue(light) - Color.blue(dark)) * amount));
+    }
+
+    private void applyThemeContent(boolean dark) {
         int bg = AppTheme.bg(dark);
         int surface = AppTheme.surface(dark);
         int ink = AppTheme.ink(dark);
         int muted = AppTheme.muted(dark);
 
-        if (rootLayout != null) rootLayout.setBackgroundColor(bg);
-        if (headerLayout != null) headerLayout.setBackgroundColor(surface);
-        if (headerDivider != null) headerDivider.setBackgroundColor(AppTheme.divider(dark));
-        for (TextView label : titleLabels) {
-            if (label != null) label.setTextColor(ink);
-        }
-        if (themeButton != null) {
-            themeButton.setText(themeButtonText());
-            themeButton.setTextColor(ink);
-            themeButton.setBackground(background(AppTheme.elevated(dark), 10));
-            themeButton.setContentDescription("切换外观模式，当前为" + AppTheme.modeLabel(themeMode));
-        }
-        if (logoutIcon != null) {
-            logoutIcon.setTint(ink);
-        }
         if (viewport != null) viewport.setBackgroundColor(bg);
         if (browserFrame != null) browserFrame.setBackgroundColor(bg);
         if (pinduoduoFrame != null) pinduoduoFrame.setBackgroundColor(bg);
@@ -279,50 +297,41 @@ public final class MainActivity extends Activity {
                 null
             );
         }
-        if (popupPhoneManagement) {
-            syncPhoneTheme(popupView);
-            syncPhoneTheme(phoneAddView);
+        if (popupInlineWorkflow) {
+            syncInlineTheme(popupView, dark);
+            syncInlineTheme(phoneAddView, dark);
         }
+        TaobaoLoginTheme.apply(browser, dark);
+        TaobaoLoginTheme.apply(popupView, dark);
+        TaobaoLoginTheme.apply(phoneAddView, dark);
         if (pddPage != null) pddPage.setDark(dark);
         if (jdPage != null) jdPage.setDark(dark);
         if (cainiaoPage != null) cainiaoPage.setDark(dark);
         if (bottomBar != null) bottomBar.setDark(dark);
-        updateLogoutControls();
+        updateNavigationEnabled();
     }
 
-    private void logoutCurrentPage() {
-        if (!signedIn[selected] || SiteDataClearer.isBusy() || switchAnimation != null || pageDragging) return;
+    private void applyThemeContentAndWait(boolean dark, Runnable painted) {
+        applyThemeContent(dark);
+        // Keep the captured source palette until the visible WebView, including
+        // official auth frames, has committed the target palette to its surface.
+        if (selected == TAB_TAOBAO && browser != null) {
+            TaobaoLoginTheme.afterPaint(browser, dark, painted);
+        } else viewport.postOnAnimation(painted);
+    }
+
+    private void logoutPage(int page) {
+        if (selected != page || !signedIn[page] || SiteDataClearer.isBusy() || switchAnimation != null || pageDragging) return;
         if (!SiteDataClearer.isSupported()) {
             android.widget.Toast.makeText(this, "请先更新 Android System WebView / Chrome，再退出登录",
                 android.widget.Toast.LENGTH_LONG).show();
             return;
         }
-        SiteDataClearer.start(selected);
+        SiteDataClearer.start(page);
     }
 
-    private void updateLogoutControls() {
-        if (logoutButton == null) return;
-        logoutButton.setVisibility(selected == TAB_CAINIAO ? View.GONE : View.VISIBLE);
-        boolean dark = isDark();
-        int ink = AppTheme.ink(dark);
-        int muted = AppTheme.muted(dark);
+    private void updateNavigationEnabled() {
         boolean busy = SiteDataClearer.isBusy();
-        boolean authenticated = signedIn[selected];
-        boolean enabled = authenticated && !busy && !pageDragging && switchAnimation == null
-            && switchMotion.position() == selected;
-        logoutButton.setEnabled(enabled);
-        logoutButton.setAlpha(!authenticated && !busy || enabled ? 1f : .45f);
-        String status = "未登录";
-        if (selected == TAB_TAOBAO && !taobaoLoginVisible) {
-            status = taobaoLoadFailed ? "状态待确认" : taobaoIdentityLoading ? "正在获取身份码" : "正在加载";
-        }
-        logoutButton.setText(busy ? "退出中" : authenticated ? "退出登录" : status);
-        logoutButton.setTextColor(authenticated ? ink : muted);
-        if (logoutIcon != null) logoutIcon.setTint(authenticated ? ink : muted);
-        logoutButton.setCompoundDrawablesRelative(null, null, authenticated || busy ? logoutIcon : null, null);
-        String platform = TAB_NAMES[Math.max(0, Math.min(PAGE_COUNT - 1, selected))];
-        logoutButton.setContentDescription(busy ? "正在退出" + platform + "登录"
-            : authenticated ? "退出" + platform + "登录" : platform + "：" + status);
         for (Button tab : navigation) if (tab != null) tab.setEnabled(!busy);
         if (viewport != null) viewport.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
         if (bottomBar != null) bottomBar.setSwipeEnabled(!busy && viewport.getPaddingBottom() == 0);
@@ -332,8 +341,13 @@ public final class MainActivity extends Activity {
         if (value && SiteDataClearer.isBusy()) return;
         if (page >= 0 && page < PAGE_COUNT) {
             signedIn[page] = value;
-            if (page == TAB_TAOBAO) setTaobaoLoginRequired(!value);
-            updateLogoutControls();
+            if (page == TAB_TAOBAO) {
+                setTaobaoLoginRequired(!value);
+                if (combinedDisplayed && browser != null) {
+                    browser.evaluateJavascript("document.getElementById('hc-logout')?.toggleAttribute('hidden',"
+                        + !value + ")", null);
+                }
+            }
         }
     }
 
@@ -345,7 +359,12 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        themeMode = getSharedPreferences(PREF_UI, MODE_PRIVATE).getInt(KEY_THEME_MODE, AppTheme.MODE_SYSTEM);
+        android.content.SharedPreferences ui = getSharedPreferences(PREF_UI, MODE_PRIVATE);
+        themeMode = ui.getInt(KEY_THEME_MODE, 0);
+        if (themeMode != AppTheme.MODE_LIGHT && themeMode != AppTheme.MODE_DARK) {
+            themeMode = AppTheme.systemDefault(this);
+            ui.edit().putInt(KEY_THEME_MODE, themeMode).apply();
+        }
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
@@ -485,31 +504,37 @@ public final class MainActivity extends Activity {
         }
         header.addView(titleViewport, new LinearLayout.LayoutParams(0, dp(40), 1f));
 
-        themeButton = button(themeButtonText(), false);
-        themeButton.setTextSize(12);
-        themeButton.setMinWidth(0);
-        themeButton.setMinimumWidth(0);
-        themeButton.setPadding(dp(10), 0, dp(10), 0);
-        themeButton.setOnClickListener(v -> cycleThemeMode());
-        LinearLayout.LayoutParams themeLp = size(-2, 34);
-        themeLp.setMarginEnd(dp(6));
-        header.addView(themeButton, themeLp);
+        themeButton = new GlassThemeSwitch(this, dark);
+        themeButton.setOnClickListener(v -> toggleThemeMode());
+        themeButton.setPreview(new GlassThemeSwitch.Preview() {
+            private boolean sourceDark;
 
-        logoutButton = button("未登录", false);
-        logoutButton.setTextSize(13);
-        logoutButton.setBackground(new android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x14000000), background(Color.TRANSPARENT, 10), null));
-        logoutIcon = getDrawable(R.drawable.ic_logout);
-        if (logoutIcon != null) {
-            logoutIcon = logoutIcon.mutate();
-            logoutIcon.setBounds(0, 0, dp(18), dp(18));
-        }
-        logoutButton.setCompoundDrawablesRelative(null, null, logoutIcon, null);
-        logoutButton.setCompoundDrawablePadding(dp(5));
-        logoutButton.setMinWidth(0);
-        logoutButton.setMinimumWidth(0);
-        logoutButton.setOnClickListener(v -> logoutCurrentPage());
-        header.addView(logoutButton, size(-2, 40));
+            @Override public void begin() {
+                if (themePreview || themeTransition == null || !activityResumed) return;
+                sourceDark = isDark();
+                themePreview = true;
+                themeTransition.begin(painted -> applyThemeContentAndWait(!sourceDark, painted),
+                    value -> applyThemeChrome(sourceDark ? value : 1f - value));
+            }
+
+            @Override public void blend(float light) {
+                if (themePreview) themeTransition.seek(sourceDark ? light : 1f - light);
+            }
+
+            @Override public void finish() {
+                if (themePreview) {
+                    themePreview = false;
+                    themeTransition.finish(painted -> {
+                        applyThemeChrome(isDark() ? 0f : 1f);
+                        themeButton.setDark(isDark());
+                        applyThemeContentAndWait(isDark(), painted);
+                    });
+                }
+            }
+        });
+        LinearLayout.LayoutParams themeLp = size(74, 44);
+        themeLp.setMarginStart(dp(4));
+        header.addView(themeButton, themeLp);
         root.addView(header);
 
         headerDivider = new View(this);
@@ -529,10 +554,11 @@ public final class MainActivity extends Activity {
         viewport.addView(browserFrame, new FrameLayout.LayoutParams(-1, -1));
 
         pinduoduoFrame = new FrameLayout(this);
-        pddPage = new PddPage(this, this::openPinduoduoIdentity, value -> setSignedIn(TAB_PDD, value));
+        pddPage = new PddPage(this, this::openPinduoduoIdentity, value -> setSignedIn(TAB_PDD, value),
+            () -> logoutPage(TAB_PDD));
         pinduoduoFrame.addView(pddPage, new FrameLayout.LayoutParams(-1, -1));
         viewport.addView(pinduoduoFrame, new FrameLayout.LayoutParams(-1, -1));
-        jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value));
+        jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value), () -> logoutPage(TAB_JD));
         viewport.addView(jdPage, new FrameLayout.LayoutParams(-1, -1));
         cainiaoPage = new CainiaoPage(this, () -> selectPage(TAB_TAOBAO), () -> setSignedIn(TAB_TAOBAO, false));
         cainiaoPage.setLoginRequired(getSharedPreferences(PREF_UI, MODE_PRIVATE).getBoolean(KEY_TAOBAO_LOGIN_REQUIRED, false));
@@ -565,6 +591,7 @@ public final class MainActivity extends Activity {
         bottomBar.bindTabs(navigation);
 
         root.addView(bottomBar, size(-1, 64));
+        themeTransition = new ThemeTransition(getWindow(), root, viewport);
 
         viewport.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> renderSwitchPosition());
         titleViewport.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> renderSwitchPosition());
@@ -623,7 +650,7 @@ public final class MainActivity extends Activity {
 
     private WebView taobaoInputView() {
         if (phoneAddView != null && phoneAddView.getVisibility() == View.VISIBLE) return phoneAddView;
-        if (popupPhoneManagement && popupView != null && popupView.getVisibility() == View.VISIBLE) return popupView;
+        if (popupInlineWorkflow && popupView != null && popupView.getVisibility() == View.VISIBLE) return popupView;
         return combinedDisplayed ? null : browser;
     }
 
@@ -677,6 +704,7 @@ public final class MainActivity extends Activity {
         transitionGeneration++;
         transitionRevealQueued = false;
         transitionPanel.animate().cancel();
+        transitionPanel.stopMorph();
         if (transitionPanel.getVisibility() != View.VISIBLE) transitionPanel.resetGeometry();
         transitionPanel.setAlpha(1f);
         transitionPanel.setVisibility(View.VISIBLE);
@@ -689,7 +717,7 @@ public final class MainActivity extends Activity {
         final int token = ++transitionGeneration;
         transitionPanel.animate().cancel();
         if (!fade) { stopShimmer(); transitionPanel.setVisibility(View.GONE); transitionPanel.setAlpha(1f); return; }
-        transitionPanel.animate().alpha(0f).setDuration(PickupLoadingView.REVEAL_DURATION).withEndAction(() -> {
+        transitionPanel.animate().alpha(0f).setDuration(PickupLoadingView.FADE_DURATION).withEndAction(() -> {
             if (token == transitionGeneration) { stopShimmer(); transitionPanel.setVisibility(View.GONE); transitionPanel.setAlpha(1f); }
         }).start();
     }
@@ -699,14 +727,16 @@ public final class MainActivity extends Activity {
         String ready = "(function(){var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');"
             + "if(!a||!b||!window.HandyPickupMotion)return null;"
             + "return {width:innerWidth,identity:a.getBoundingClientRect().height,parcels:b.getBoundingClientRect().height,"
-            + "heading:document.querySelector('.hc-heading').getBoundingClientRect().height,ready:!!(a.dataset.ready&&b.dataset.ready)};})()";
+            + "heading:document.querySelector('.hc-heading').getBoundingClientRect().height,ready:!!(a.dataset.ready&&b.dataset.ready),"
+            + "settled:HandyPickupMotion.isSettled(a)&&HandyPickupMotion.isSettled(b)};})()";
         view.evaluateJavascript(ready, complete -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
             boolean readyCards = false;
             try {
                 org.json.JSONObject geometry = new org.json.JSONObject(complete);
                 readyCards = geometry.getBoolean("ready");
-                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) {
+                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE
+                        && (readyCards && geometry.optBoolean("settled") || SystemClock.elapsedRealtime() - transitionStarted >= 12000)) {
                     final int token = transitionGeneration;
                     transitionRevealQueued = true;
                     view.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
@@ -714,13 +744,15 @@ public final class MainActivity extends Activity {
                             if (generation != combineGeneration || browser != view || token != transitionGeneration
                                     || isFinishing() || isDestroyed()) return;
                             transitionPanel.morphTo((float)geometry.optDouble("width"), (float)geometry.optDouble("identity"),
-                                (float)geometry.optDouble("parcels"), (float)geometry.optDouble("heading"));
-                            hideTransition(true);
+                                (float)geometry.optDouble("parcels"), (float)geometry.optDouble("heading"), () -> {
+                                    if (generation == combineGeneration && browser == view && token == transitionGeneration)
+                                        hideTransition(true);
+                                });
                         }
                     });
                 }
             } catch (org.json.JSONException notReady) { /* The merged document is still being prepared. */ }
-            if (readyCards || SystemClock.elapsedRealtime() - transitionStarted >= 12000) {
+            if (transitionRevealQueued || SystemClock.elapsedRealtime() - transitionStarted >= 12000) {
                 stopTaobaoDeadline();
                 if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) hideTransition(true);
             } else view.postDelayed(() -> waitForMergedPresentation(view, generation), 200);
@@ -743,7 +775,7 @@ public final class MainActivity extends Activity {
 
     private void resetTaobaoLoad() {
         stopTaobaoDeadline();
-        taobaoLoadFailed = taobaoLoginVisible = taobaoIdentityLoading = false;
+        taobaoLoadFailed = taobaoLoginVisible = false;
     }
 
     private void checkTaobaoDeadline() {
@@ -793,7 +825,6 @@ public final class MainActivity extends Activity {
 
     private void selectPage(int index) {
         if (SiteDataClearer.isBusy()) return;
-        if (popupDialog != null) popupDialog.dismiss();
         int target = Math.max(0, Math.min(PAGE_COUNT - 1, index));
         preparePreview();
         if (!selectionInitialized) {
@@ -816,6 +847,7 @@ public final class MainActivity extends Activity {
 
     private SwipeFrameLayout.Listener pageSwipeListener() {
         return new SwipeFrameLayout.Listener() {
+            @Override public boolean allowsSwipe() { return selected != TAB_JD || !jdPage.blocksPageSwipe(); }
             @Override public boolean isSettling() { return switchAnimation != null; }
             @Override public void onDragStarted() {
                 cancelSwitchAnimation();
@@ -877,7 +909,7 @@ public final class MainActivity extends Activity {
         }
         final android.animation.ValueAnimator animation = android.animation.ValueAnimator.ofFloat(switchMotion.position(), target);
         switchAnimation = animation;
-        updateLogoutControls();
+        updateNavigationEnabled();
         animation.setDuration(SwitchMotion.duration(target - switchMotion.position()));
         animation.setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f));
         animation.addUpdateListener(value -> {
@@ -922,7 +954,7 @@ public final class MainActivity extends Activity {
             if (activityResumed) scanHandler.postDelayed(scanWatch, 500);
         }
         bottomBar.setSwitchPosition(position, moving);
-        updateLogoutControls();
+        updateNavigationEnabled();
     }
     private void completeSelection(int target) {
         selectionInitialized = true;
@@ -987,7 +1019,7 @@ public final class MainActivity extends Activity {
         combineGeneration++;
         resetTaobaoLoad();
         hideError();
-        updateLogoutControls();
+        updateNavigationEnabled();
         combinedMarkup = null;
         try {
             AssetManager assets = getAssets();
@@ -1002,6 +1034,7 @@ public final class MainActivity extends Activity {
                 .replace("@@OFFICIAL_IDENTITY@@", officialIdentityScript)
                 .replace("@@PICKUP_MOTION@@", WebAssets.readText(assets, "pickup-motion.js"))
                 .replace("@@IDENTITY_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_ENTRY))
+                .replace("@@ADD_PACKAGE_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_ADD_PACKAGE_ENTRY))
                 .replace("@@PARCELS_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_PARCELS_ENTRY));
             combinedDisplayed = false;
             showTransition();
@@ -1079,20 +1112,29 @@ public final class MainActivity extends Activity {
         settings.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        TaobaoLoginTheme.apply(web, isDark());
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (UrlPolicy.LOCAL_LOGOUT_ACTION.equals(request.getUrl().toString())) {
+                    if (request.isForMainFrame() && request.hasGesture() && view == browser && combinedDisplayed) {
+                        view.post(() -> { if (view == browser && combinedDisplayed) logoutPage(TAB_TAOBAO); });
+                    }
+                    return true;
+                }
                 if (request.isForMainFrame() && rejectPhoneAddNavigation(view, request.getUrl().toString())) return true;
                 if (UrlPolicy.isAllowed(request.getUrl().toString())) return false;
                 if (request.isForMainFrame()) blockedNavigation();
                 return true;
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (UrlPolicy.LOCAL_LOGOUT_ACTION.equals(url)) return true;
                 if (rejectPhoneAddNavigation(view, url)) return true;
                 if (UrlPolicy.isAllowed(url)) return false;
                 blockedNavigation();
                 return true;
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                TaobaoLoginTheme.pageStarted(view);
                 if ("about:blank".equals(url) && popup) return;
                 if (rejectPhoneAddNavigation(view, url)) { view.stopLoading(); return; }
                 if (!UrlPolicy.isAllowed(url)) {
@@ -1106,31 +1148,32 @@ public final class MainActivity extends Activity {
                     if (view != browser || taobaoLoadFailed) return;
                     combinedDisplayed = false;
                     combineGeneration++;
-                    taobaoLoginVisible = taobaoIdentityLoading = false;
-                    updateLogoutControls();
+                    taobaoLoginVisible = false;
+                    updateNavigationEnabled();
                     if (combinedMarkup != null) showTransition();
                 } else {
                     popupGeneration++;
-                    if (popupView == view && popupDialog == null && !popupPhoneManagement) {
+                    if (popupView == view) {
                         // The transport only supplies the destination after the window is created.
                         // Keep it hidden until we know whether it belongs inline or in the login dialog.
-                        popupPhoneManagement = UrlPolicy.isTaobaoPhonePage(url);
-                        if (!popupPhoneManagement) showLoginPopup();
+                        popupInlineWorkflow = UrlPolicy.isTaobaoPhonePage(url) || UrlPolicy.isTaobaoAddPackagePage(url);
                     }
                 }
             }
             @Override public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush();
-                preparePhonePage(view, url);
-                if (popup && !popupPhoneManagement) installPresentationObserver(view);
+                TaobaoLoginTheme.apply(view, isDark());
+                prepareInlinePage(view, url);
+                if (popup && !popupInlineWorkflow) installPresentationObserver(view);
                 if (!popup) {
                     installPresentationObserver(view);
                     renderCombined(view, url);
                 } else waitForPopupIdentity(view, ++popupGeneration);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
-                preparePhonePage(view, url);
-                if (!popup || !popupPhoneManagement) installPresentationObserver(view);
+                TaobaoLoginTheme.apply(view, isDark());
+                prepareInlinePage(view, url);
+                if (!popup || !popupInlineWorkflow) installPresentationObserver(view);
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
                 if (combinedMarkup != null) {
@@ -1155,8 +1198,12 @@ public final class MainActivity extends Activity {
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
+                if (TaobaoLoginTheme.acceptReady(web, message)) {
+                    if (!popup && taobaoLoginVisible) revealOfficialLogin(web);
+                    return true;
+                }
                 String value = message.message();
-                if ((popup ? popupView != web || popupPhoneManagement : browser != web) || combinedMarkup == null
+                if ((popup ? popupView != web || popupInlineWorkflow : browser != web) || combinedMarkup == null
                         || value == null || !value.startsWith("__HANDYCODE_PHASE__:")) return false;
                 String phase = value.substring("__HANDYCODE_PHASE__:".length());
                 if (popup) {
@@ -1167,9 +1214,7 @@ public final class MainActivity extends Activity {
                     else if (!combinedDisplayed && ("loading".equals(phase) || "identity-loading".equals(phase)
                             || "ready".equals(phase))) {
                         taobaoLoginVisible = false;
-                        taobaoIdentityLoading = !"loading".equals(phase);
                         if ("ready".equals(phase)) setSignedIn(TAB_TAOBAO, true);
-                        else updateLogoutControls();
                         showTransition();
                         if ("ready".equals(phase)) renderCombined(web, web.getUrl());
                     } else if ("merged".equals(phase) && !combinedDisplayed) {
@@ -1183,7 +1228,7 @@ public final class MainActivity extends Activity {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, Message message) {
                 if (!userGesture) return false;
                 if (popup) {
-                    if (view != popupView || !popupPhoneManagement || phoneAddView != null
+                    if (view != popupView || !popupInlineWorkflow || phoneAddView != null
                             || !UrlPolicy.isTaobaoPhonePage(view.getUrl())) return false;
                     openPhoneAdd(message);
                     return true;
@@ -1204,7 +1249,7 @@ public final class MainActivity extends Activity {
     }
 
     private void openPopup(Message message) {
-        popupPhoneManagement = false;
+        popupInlineWorkflow = false;
         popupView = createBrowser(true);
         popupView.setVisibility(View.INVISIBLE);
         browserFrame.addView(popupView, new FrameLayout.LayoutParams(-1, -1));
@@ -1212,10 +1257,10 @@ public final class MainActivity extends Activity {
         attachPopup(message, popupView);
     }
 
-    private void preparePhonePage(WebView view, String url) {
-        if (!popupPhoneManagement || (view != popupView && view != phoneAddView) || !UrlPolicy.isAllowed(url)) return;
-        if (!UrlPolicy.isTaobaoPhonePage(url) && !UrlPolicy.isTaobaoAddPhonePage(url)) {
-            revealPhonePage(view);
+    private void prepareInlinePage(WebView view, String url) {
+        if ((view != popupView && view != phoneAddView) || !UrlPolicy.isAllowed(url)) return;
+        if (!UrlPolicy.isTaobaoPhonePage(url) && !UrlPolicy.isTaobaoAddPhonePage(url) && !UrlPolicy.isTaobaoAddPackagePage(url)) {
+            revealInlinePage(view);
             return;
         }
         // In WebView the official quick menu is empty, but still reserves its header height.
@@ -1224,18 +1269,17 @@ public final class MainActivity extends Activity {
             + "var style=document.createElement('style');style.id='hc-phone-spacing';"
             + "style.textContent=\"#quick-menu-container:empty,#quick-menu-container:empty + div[class^='space--']{display:none!important}\";"
             + "(document.head||document.documentElement).appendChild(style);})()", ignored -> {
-                if (url.equals(view.getUrl())) revealPhonePage(view);
+                if (url.equals(view.getUrl())) revealInlinePage(view);
             });
     }
 
-    private void syncPhoneTheme(WebView view) {
+    private void syncInlineTheme(WebView view, boolean dark) {
         if (view == null || phoneThemeScript == null) return;
-        view.setBackgroundColor(AppTheme.bg(isDark()));
-        view.evaluateJavascript(phoneThemeScript + "\nHandyCodePhoneTheme.setDark(" + isDark() + ");", null);
+        view.setBackgroundColor(AppTheme.bg(dark));
+        view.evaluateJavascript(phoneThemeScript + "\nHandyCodePhoneTheme.setDark(" + dark + ");", null);
     }
 
-    private void revealPhonePage(WebView view) {
-        if (!popupPhoneManagement) return;
+    private void revealInlinePage(WebView view) {
         if (view == phoneAddView && phoneAddPageStarted) {
             popupView.setVisibility(View.INVISIBLE);
         } else if (view != popupView || phoneAddView != null && phoneAddView.getVisibility() == View.VISIBLE) {
@@ -1245,56 +1289,29 @@ public final class MainActivity extends Activity {
         view.setVisibility(View.VISIBLE);
     }
 
-    private void showLoginPopup() {
-        boolean dark = isDark();
-        popupDialog = new Dialog(this);
-        popupDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setBackgroundColor(AppTheme.surface(dark));
-        TextView title = label("官方网页登录", 18, AppTheme.ink(dark), true);
-        title.setPadding(dp(16), dp(16), dp(16), dp(16));
-        body.addView(title);
-        TextView trustedDomains = label("淘宝官方网页登录", 12, AppTheme.muted(dark), false);
-        trustedDomains.setPadding(dp(16), 0, dp(16), dp(10));
-        body.addView(trustedDomains);
-        browserFrame.removeView(popupView);
-        popupView.setVisibility(View.VISIBLE);
-        body.addView(popupView, new LinearLayout.LayoutParams(-1, 0, 1f));
-        Button close = button("关闭登录窗口", false);
-        close.setOnClickListener(v -> closePopup());
-        body.addView(close, size(-1, 48));
-        popupDialog.setContentView(body);
-        popupDialog.setOnDismissListener(d -> disposePopup());
-        popupDialog.show();
-        Window window = popupDialog.getWindow();
-        if (window != null) window.setLayout(-1, -1);
-    }
-
     private void closePopup() {
-        if (popupDialog != null) popupDialog.dismiss();
-        else disposePopup();
+        disposePopup();
     }
 
     private void disposePopup() {
         if (popupView == null) return;
         popupGeneration++;
-        final boolean phoneManagement = popupPhoneManagement;
+        final boolean inlineWorkflow = popupInlineWorkflow;
         closePhoneAdd(false);
         WebView closed = popupView;
-        popupView = null; popupDialog = null; popupPhoneManagement = false;
+        popupView = null; popupInlineWorkflow = false;
         closed.stopLoading();
         ((ViewGroup) closed.getParent()).removeView(closed);
         closed.destroy();
         updateTaobaoDeadline();
-        if (browser != null && phoneManagement) browser.setVisibility(View.VISIBLE);
+        if (browser != null) browser.setVisibility(View.VISIBLE);
         if (browser != null && combinedMarkup != null && !taobaoLoadFailed) {
             final WebView parent = browser;
             final int generation = combineGeneration;
             CookieManager.getInstance().flush();
             parent.postDelayed(() -> {
                 if (isFinishing() || isDestroyed() || browser != parent || generation != combineGeneration || popupView != null) return;
-                if (phoneManagement && combinedDisplayed) parent.evaluateJavascript("window.HandyCodeRefreshParcels?.()", null);
+                if (inlineWorkflow && combinedDisplayed) parent.evaluateJavascript("window.HandyCodeRefreshParcels?.()", null);
                 else if (combinedDisplayed) refreshAfterLogin();
                 else parent.loadUrl(UrlPolicy.TAOBAO_ENTRY);
             }, 300);
@@ -1338,12 +1355,12 @@ public final class MainActivity extends Activity {
 
     private void waitForPopupIdentity(WebView view, final int generation) {
         if (isFinishing() || isDestroyed() || generation != popupGeneration || popupView != view
-                || popupPhoneManagement || combinedMarkup == null || combinedGateScript == null || !UrlPolicy.isAllowed(view.getUrl())) return;
+                || popupInlineWorkflow || combinedMarkup == null || combinedGateScript == null || !UrlPolicy.isAllowed(view.getUrl())) return;
         view.evaluateJavascript(officialIdentityScript + "\n" + combinedGateScript, ready -> {
             if (generation != popupGeneration || popupView != view || isFinishing() || isDestroyed()) return;
             if ("true".equals(ready) && sameIdentityPage(view.getUrl())) {
                 CookieManager.getInstance().flush();
-                if (popupDialog != null) popupDialog.dismiss();
+                closePopup();
             } else retryOfficialIdentity(view, generation, true);
         });
     }
@@ -1373,10 +1390,17 @@ public final class MainActivity extends Activity {
         if (browser != view || taobaoLoadFailed) return;
         if (!taobaoLoginVisible) {
             taobaoLoginVisible = true;
-            taobaoIdentityLoading = false;
             stopTaobaoDeadline();
             setSignedIn(TAB_TAOBAO, false);
+            final int waitingGeneration = combineGeneration;
+            view.postDelayed(() -> {
+                if (browser == view && waitingGeneration == combineGeneration && taobaoLoginVisible
+                        && !TaobaoLoginTheme.ready(view) && !isFinishing() && !isDestroyed()) {
+                    failTaobaoLoad("登录页暂未就绪", "请检查网络后重新打开网页。", false);
+                }
+            }, 12000);
         }
+        if (!TaobaoLoginTheme.ready(view)) return;
         if (taobaoLoginChromeScript == null || transitionPanel.getVisibility() != View.VISIBLE) return;
         final int expected = combineGeneration;
         view.evaluateJavascript(taobaoLoginChromeScript, ignored -> {
@@ -1407,7 +1431,7 @@ public final class MainActivity extends Activity {
         stopTaobaoDeadline();
         hideTransition(false);
         showError(title, detail, offerIdentityLink);
-        updateLogoutControls();
+        updateNavigationEnabled();
     }
 
     private void recoverBrowser(WebView view, boolean popup) {
@@ -1481,6 +1505,8 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onPause() {
         activityResumed = false;
+        themePreview = false;
+        if (themeTransition != null) themeTransition.cancel();
         updateTaobaoDeadline();
         ++scanGeneration;
         scanHandler.removeCallbacks(scanWatch);
@@ -1504,7 +1530,7 @@ public final class MainActivity extends Activity {
         scanHandler.removeCallbacks(scanWatch);
         scanHandler.post(scanWatch);
         applyTheme();
-        if (SiteDataClearer.isBusy()) { updateLogoutControls(); return; }
+        if (SiteDataClearer.isBusy()) { updateNavigationEnabled(); return; }
         if (browser != null) browser.onResume();
         if (popupView != null) popupView.onResume();
         if (phoneAddView != null) phoneAddView.onResume();
@@ -1515,6 +1541,8 @@ public final class MainActivity extends Activity {
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
     }
     @Override protected void onDestroy() {
+        if (themeTransition != null) themeTransition.cancel();
+        if (themeButton != null) themeButton.destroyRenderer();
         scanHandler.removeCallbacks(scanWatch);
         ++scanGeneration;
         setScanBrightness(false);

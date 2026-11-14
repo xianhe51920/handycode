@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+import {parseHTML} from 'linkedom';
+const source=readFileSync(new URL('../app/src/main/assets/pickup-motion.js',import.meta.url),'utf8');
+const {window,document}=parseHTML('<html><head></head><body><section id="mount"></section></body></html>');
+const animations=[];
+window.matchMedia=()=>({matches:false});
+window.HTMLElement.prototype.getBoundingClientRect=function(){return {height:this.id==='mount'?(this.dataset.ready?260:140):120};};
+window.HTMLElement.prototype.animate=function(frames,options){
+ const a={node:this,frames,options,cancelled:false,cancel(){this.cancelled=true;this.oncancel?.();},finish(){this.onfinish?.();}};
+ animations.push(a);return a;
+};
+runInNewContext(source,{window,document,globalThis:window});
+const motion=window.HandyPickupMotion,mount=document.getElementById('mount');
+for (const [width,height] of [[240,226],[280,218],[320,210],[360,202],[480,202]])
+ assert.equal(motion.identityHeight(width),height,'Responsive reservation depends on width, not loading content');
+const markup=motion.loadingMarkup();
+mount.innerHTML='<div class="hc-section-placeholder">'+markup+'</div>';
+assert.equal(mount.querySelectorAll('.hc-load-dots span').length,3);
+assert.equal(mount.querySelectorAll('i').length,0,'No content-shaped skeleton strips');
+assert.equal(document.querySelectorAll('#hc-loading-style').length,1);
+motion.loadingMarkup();assert.equal(document.querySelectorAll('#hc-loading-style').length,1,'Loading styles installed once');
+const content=document.createElement('div');content.textContent='Official content';
+motion.replace(mount,content);
+assert.equal(motion.isSettled(mount),false);
+const height=animations.find(a=>a.node===mount),incoming=animations.find(a=>a.node===content);
+assert.equal(height.frames[0].height,'140px');assert.equal(height.frames[1].height,'260px');
+assert.equal(incoming.options.delay,height.options.duration,'Content waits until the box has its real size');
+assert.equal(incoming.options.fill,'backwards','Incoming content stays concealed during sizing');
+height.finish();assert.equal(motion.isSettled(mount),false,'Cover must not expose an unfinished fade');
+motion.reset(mount);
+assert.ok(animations.filter(a=>a!==height).every(a=>a.cancelled),'Cancel every pending animation even when callbacks remove entries');
+assert.equal(motion.isSettled(mount),true);
+assert.equal(mount.querySelector('.hc-pickup-outgoing'),null);
+console.log('PASS: neutral dots, single stylesheet, size-before-reveal and complete interrupted-animation cancellation');

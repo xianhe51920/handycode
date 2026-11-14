@@ -7,7 +7,7 @@ const script = readFileSync(new URL('../app/src/main/assets/phone-theme.js', imp
 function fixture(hostname, pathname) {
  const {window, document} = parseHTML('<html><head></head><body><input type="tel" value="fixture"><button disabled>验证并绑定</button></body></html>');
  delete window.HandyCodePhoneTheme;
- const context = {window, document, location:{hostname, pathname}};
+ const context = {window, document, location:{hostname, pathname},MutationObserver:window.MutationObserver};
  runInNewContext(script, context);
  return {window, document, context};
 }
@@ -15,6 +15,8 @@ for (const [host, path, provider] of [
  ['m.pinduoduo.net', '/mdkd/cellPhoneList', 'pdd'],
  ['pages-fast.m.taobao.com', '/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/phone-manage', 'taobao'],
  ['pages-fast.m.taobao.com', '/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/add-friend-phone-ssr', 'taobao'],
+ ['pages-fast.m.taobao.com', '/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/school-search-ssr', 'taobao'],
+ ['m.pinduoduo.net', '/mdkd/add-package', 'pdd'],
 ]) {
  const {window, document, context} = fixture(host, path);
  const input = document.querySelector('input');
@@ -51,5 +53,30 @@ for (const [host, path] of [
  window.HandyCodePhoneTheme.setDark(true);
  assert.equal(document.getElementById('hc-phone-theme'), null);
  assert.equal(document.documentElement.getAttribute('data-hc-phone-theme'), null);
+}
+{
+ const {window,document}=fixture('pages-fast.m.taobao.com','/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/school-search-ssr');
+ document.body.innerHTML='<div class="school-search--fixture"><div class="header--fixture"><input placeholder="输入运单号查询取件码"></div><div><input type="file"><p>图片识别运单号</p></div><div class="history-pkg--fixture">追踪介绍</div><div class="rowFeeds--fixture">推荐商品</div><div class="result--fixture">查询结果</div></div>';
+ const input=document.querySelector('input');let inputEvents=0;input.addEventListener('input',()=>inputEvents++);
+ window.HandyCodePhoneTheme.setDark(true);
+ assert.equal(document.documentElement.dataset.hcPackageForm,'taobao');
+ assert.equal(document.querySelectorAll('[data-hc-package-extra]').length,3);
+ assert.equal(input.closest('[data-hc-package-extra]'),null);
+ assert.equal(document.querySelector('.result--fixture').hasAttribute('data-hc-package-extra'),false);
+ window.HandyCodePhoneTheme.setDark(false);
+ assert.equal(document.querySelector('input'),input);
+ input.dispatchEvent(new window.Event('input'));assert.equal(inputEvents,1);
+}
+{
+ const {window,document}=fixture('m.pinduoduo.net','/mdkd/add-package');
+ document.body.innerHTML='<div class="index_add-package-package__fixture"><textarea placeholder="完整手机号/取件码/完整运单号">WAYBILL-FIXTURE</textarea><div class="submit-btn">添加</div></div>';
+ const input=document.querySelector('textarea');
+ window.HandyCodePhoneTheme.setDark(true);
+ assert.equal(input.placeholder,'请输入完整运单号');
+ assert.equal(input.value,'WAYBILL-FIXTURE');
+ window.HandyCodePhoneTheme.setDark(false);
+ assert.equal(document.querySelector('textarea'),input);
+ assert.equal(input.value,'WAYBILL-FIXTURE');
+ assert.equal(document.documentElement.dataset.hcPackageForm,'pdd');
 }
 console.log('PASS: scoped phone forms, reversible themes, idempotence, unchanged inputs, disabled state and official handlers');
