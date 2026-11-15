@@ -4,15 +4,20 @@ import {runInNewContext} from 'node:vm';
 import {parseHTML} from 'linkedom';
 
 const script=readFileSync(new URL('../app/src/main/assets/taobao-login-theme.js',import.meta.url),'utf8');
-function fixture(origin='https://login.m.taobao.com',embedded=false){
+function fixture(origin='https://login.m.taobao.com',embedded=false,manualMutations=false){
  const {document,window:dom}=parseHTML('<html><head></head><body class="mobile"><div id="login"><input class="fm-text" type="tel" value="fixture"><input type="checkbox" checked><button class="fm-button" disabled>获取验证码</button></div></body></html>');
  const events={},tasks=[];const parent={postMessage:()=>{}};
  document.querySelectorAll('input,.sms-container,.login-error-dialog').forEach(n=>n.getClientRects=()=>[]);
  const window={__HC_TAOBAO_DARK__:true,addEventListener:(name,fn)=>events[name]=fn};
  window.parent=embedded?parent:window;
- const context={window,document,location:{origin,href:origin+'/login.htm'},URL,MutationObserver:dom.MutationObserver,setTimeout:fn=>tasks.push(fn)};
+ const observers=[];
+ const Observer=manualMutations?class {
+  constructor(callback){this.callback=callback;observers.push(this);}
+  observe(target,options){this.options=options;}
+ }:dom.MutationObserver;
+ const context={window,document,location:{origin,href:origin+'/login.htm'},URL,MutationObserver:Observer,setTimeout:fn=>tasks.push(fn)};
  runInNewContext(script,context);
- return {window,document,events,parent,context,tasks};
+ return {window,document,events,parent,context,tasks,observers};
 }
 let f=fixture();
 assert.equal(f.document.documentElement.getAttribute('data-hc-taobao-login'),'dark');
@@ -69,6 +74,29 @@ f.window.HandyCodeTaobaoLoginTheme.setDark(true);
 assert.equal(phases.length,0,'Do not reveal the login frame before painted theme');
 frames.shift()();assert.deepEqual(phases,['__HANDYCODE_TAOBAO_LOGIN__:ready']);
 f.window.HandyCodeTaobaoLoginTheme.setDark(false);assert.equal(phases.length,1,'Theme changes never restart the readiness flow');
+
+// Some login variants mount controls hidden, then reveal them by changing only
+// an ancestor class/style. No child node is inserted at that point.
+f=fixture('https://login.m.taobao.com',false,true);
+const delayedPhases=[];let visible=false;
+f.context.getComputedStyle=()=>({visibility:visible?'visible':'hidden'});
+f.context.console={info:value=>delayedPhases.push(value)};
+f.document.querySelector('input[type=tel]').getClientRects=()=>visible?[{}]:[];
+f.window.HandyCodeTaobaoLoginTheme.setDark(true);
+await Promise.resolve();
+while(f.tasks.length)f.tasks.shift()();
+assert.equal(delayedPhases.length,0,'Hidden form cannot release the cover');
+visible=true;
+f.document.querySelector('#login').style.visibility='visible';
+for(const observer of f.observers){
+ if(observer.options.attributes&&(!observer.options.attributeFilter||observer.options.attributeFilter.includes('style')))
+  observer.callback([{type:'attributes',attributeName:'style'}]);
+}
+await Promise.resolve();
+while(f.tasks.length)f.tasks.shift()();
+assert.deepEqual(delayedPhases,['__HANDYCODE_TAOBAO_LOGIN__:ready'],
+ 'A form revealed without inserting DOM nodes must release the cover');
+
 for(const origin of ['http://login.m.taobao.com','https://login.m.taobao.com.evil.example','https://m.pinduoduo.net']){
  assert.equal(fixture(origin).window.HandyCodeTaobaoLoginTheme,undefined);
 }

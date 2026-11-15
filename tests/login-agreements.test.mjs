@@ -19,4 +19,21 @@ for(const [origin,container,embedded] of [['https://login.m.taobao.com','fm-agre
  f.document.querySelector('#legal').innerHTML='<b>新验证码页协议</b>';assert.equal(f.click('#legal b').blocked,true,'Late-rendered OTP links are covered');
 }
 for(const args of [['https://evil.example','agreement-wrap'],['https://m.pinduoduo.net.evil.example','agreement-wrap'],['https://m.pinduoduo.net','agreement-wrap',false,'/mdkd/package'],['https://m.pinduoduo.net','agreement-wrap',true]])assert.equal(fixture(...args).handlers.length,0);
+
+// JD's official form renders submit controls as <a>, with click:doNext /
+// click:loginOneStep. Agreement wording must not swallow those login handlers.
+const jd=fixture('https://plogin.m.jd.com','policy_tip');
+jd.document.body.insertAdjacentHTML('beforeend',
+ '<a id="jd-submit" class="btn J_ping" report-eventid="MLoginRegister_SMSLogin"><span>同意协议并登录</span></a>'+
+ '<a id="jd-one-step" class="btn btn-onestep J_ping">同意协议并一键登录</a>'+
+ '<div class="protocol-notice"><a id="consent-login">同意协议并登录</a><a id="consent-doc">《京东用户注册协议》</a></div>'+
+ '<button id="native-submit"><span class="link">同意协议并登录</span></button>'+
+ '<a role="button" id="role-submit"><span>同意协议并登录</span></a>');
+for(const selector of ['#jd-submit','#jd-submit span','#jd-one-step','#consent-login','#native-submit span','#role-submit span']){
+ const event=jd.click(selector);let officialCalls=0;
+ if(!event.stopped)officialCalls++;
+ assert.equal(officialCalls,1,selector+' must reach the official login handler');
+ assert.equal(event.blocked,undefined);
+}
+assert.equal(jd.click('#consent-doc').blocked,true,'A registration agreement is still a document link');
 console.log('PASS: login agreement navigation blocked; checkboxes, official form state, other controls and page scope preserved');

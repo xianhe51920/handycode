@@ -11,11 +11,15 @@
   if (!loginPage()) return;
   var target = event.target;
   if (target && target.nodeType === 3) target = target.parentElement;
-  if (!target || !target.closest || target.closest('input,[role="checkbox"]')) return;
+  if (!target || !target.closest || target.closest('input,button,[role="checkbox"],[role="button"]')) return;
   var link = target.closest('a,[role="link"],.link,.policy_tip-link');
   if (!link || link.querySelector('input,[role="checkbox"]')) return;
+  var caption = (link.textContent || '').replace(/\s/g, '');
+  // JD submits through an <a> labelled “同意协议并登录” / “同意协议并一键登录”.
+  // Those actions must reach the official handler, even inside consent UI.
+  if (/^(?:同意|接受).*(?:登录|注册|继续)/.test(caption)) return;
   var consent = link.closest('.fm-agreement,.fm-optional-agreement,.agreement-wrap,.agreement-container,.agreement,.policy_tip,.policy-tip,.protocol-notice');
-  if (!consent && !/(协议|隐私|服务条款|法律声明)/.test(link.textContent || '')) return;
+  if (!consent && !/(协议|隐私|服务条款|法律声明)/.test(caption)) return;
   // Keep the official checkbox, its checked state and login validation intact.
   // Capture also stops React/router handlers, including nested link text/icons.
   event.preventDefault();

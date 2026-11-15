@@ -6,10 +6,10 @@
 
 HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taobao and Pinduoduo pickup information, and JD identity codes and pickup codes available in JD orders.
 
-最新正式版 **0.8.1**，支持 Android 8.0（API 26）及以上，目标 API 35。
+最新正式版 **0.8.2**，支持 Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载最新 APK 与查看更新说明](https://github.com/xianhe51920/handycode/releases/latest)
-- [0.8.1 更新说明](docs/releases/0.8.1.md)
+- [0.8.2 更新说明](docs/releases/0.8.2.md)
 - [版本、包大小及签名证书摘要](release.json)
 
 安装包随 GitHub Releases 分发，仓库不跟踪构建产物。下载站是独立项目，不随本仓库发布。
@@ -25,7 +25,7 @@ HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taoba
 
 四个平台的入口固定为「菜鸟 → 淘宝 → 拼多多 → 京东」。身份码、包裹各自刷新；支持点击和横向滑动切换、记忆上次标签、玻璃昼夜开关、可见条码自动提亮，以及卡片下方的当前平台退出入口。
 
-0.8.1 新增京东身份码，统一加载和刷新过渡，补齐登录、验证码、号码管理及运单号查询页的深浅配色，并修复淘宝启动与昼夜切换时的闪白。详情和验证边界见[更新说明](docs/releases/0.8.1.md)。
+0.8.2 修复京东「同意协议并登录」按钮被协议链接拦截规则误挡的问题，并完善淘宝登录框显隐识别和加载超时恢复。保留 0.8.1 的京东身份码、统一加载过渡及深浅配色功能。详情和验证边界见[更新说明](docs/releases/0.8.2.md)。
 
 ## 免责声明
 
@@ -125,6 +125,7 @@ flowchart TD
 - 原始身份码未生成时，仅在非登录状态下有界触发官方刷新控件；输入手机号、验证码或显示认证 iframe 时暂停，不自行提交表单。
 - `taobao-login-chrome.js` 只隐藏“您需要登录才能继续访问 / 关闭”这一外层标题，回收 iframe 顶部占位。官方 iframe 的节点和 `src` 不变，输入与验证流程继续由官方处理。
 - `taobao-login-theme.js` 适配官方手机号输入页和短信验证码格子。支持的 WebView 会在限定的官方来源文档启动时注入样式，覆盖跨域登录 iframe；已打开的登录 iframe 通过限定来源与父窗口的主题消息同步昼夜模式，不读取或提交输入内容。
+- 登录框仅通过 class、style 等属性变化从隐藏变为显示时，也会重新检查是否就绪。加载超时计时持续到登录表单完成主题绘制，不因发现 iframe 或普通网页回调而提前取消；应用进入后台时暂停计时。
 - 切换昼夜模式时，保留旧画面的截图，等待淘宝登录 iframe 确认目标主题并经过 WebView 绘制屏障后再渐变。拖动松手或取消时也会等待最终主题绘制完成，避免外层已变色、登录页面仍停留在另一主题而闪白。
 - 官方入口等待超时后会提供恢复操作。检测到需要先开通身份码时，应用提供打开淘宝 App 身份码页的入口。
 - 号码管理与新增号码表单使用淘宝官方网页和现有 WebView 会话。应用在中间区域显示它们，返回取件页后刷新待取包裹。

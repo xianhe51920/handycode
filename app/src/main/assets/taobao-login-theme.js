@@ -129,7 +129,14 @@ html[data-hc-taobao-login] :is(.login-dialog-title,.login-dialog-body,.login-err
  });
  document.addEventListener('load', queue, true);
  document.addEventListener('DOMContentLoaded', update, {once:true});
- // Observe structure only: typing and switching theme do not cause a loop.
- new MutationObserver(function(){if (!document.getElementById(auth?'hc-taobao-login-theme':'hc-taobao-host-theme')) update();else queue();}).observe(document, {childList:true,subtree:true});
+ // Login variants may mount a hidden form and reveal it using only a class or
+ // style change. Observe those changes until readiness, without watching our
+ // own data-hc theme attribute or input values (which would cause loops).
+ var observation={childList:true,subtree:true};
+ if(auth){observation.attributes=true;observation.attributeFilter=['class','style','hidden','type'];}
+ new MutationObserver(function(records){
+  if (readyReported && records.every(function(record){return record.type==='attributes';})) return;
+  if (!document.getElementById(auth?'hc-taobao-login-theme':'hc-taobao-host-theme')) update();else queue();
+ }).observe(document, observation);
  update();
 })();

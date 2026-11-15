@@ -783,8 +783,13 @@ public final class MainActivity extends Activity {
             updateTaobaoDeadline();
             return;
         }
-        failTaobaoLoad("淘宝取件信息暂未加载完成",
-            "请先在淘宝 App 确认已开通取件身份码，再点“重新打开网页”重试。重新打开会保留已有登录状态。", true);
+        if (taobaoLoginVisible) {
+            failTaobaoLoad("淘宝登录页暂未加载完成",
+                "请检查网络后点“重新打开网页”重试。若仍无法打开，请检查 Android System WebView 是否需要更新。重新打开会保留已有登录状态。", false);
+        } else {
+            failTaobaoLoad("淘宝取件信息暂未加载完成",
+                "官方网页暂未准备就绪，请检查网络后点“重新打开网页”重试。重新打开会保留已有登录状态。", true);
+        }
     }
 
     private void buildErrorPanel() {
@@ -1390,15 +1395,11 @@ public final class MainActivity extends Activity {
         if (browser != view || taobaoLoadFailed) return;
         if (!taobaoLoginVisible) {
             taobaoLoginVisible = true;
-            stopTaobaoDeadline();
+            // Discovering an iframe does not mean its login form has loaded.
+            // Keep the foreground deadline alive until the themed form paints.
+            // A separate timer tied to combineGeneration can be invalidated by
+            // onPageFinished/renderCombined, leaving the cover up indefinitely.
             setSignedIn(TAB_TAOBAO, false);
-            final int waitingGeneration = combineGeneration;
-            view.postDelayed(() -> {
-                if (browser == view && waitingGeneration == combineGeneration && taobaoLoginVisible
-                        && !TaobaoLoginTheme.ready(view) && !isFinishing() && !isDestroyed()) {
-                    failTaobaoLoad("登录页暂未就绪", "请检查网络后重新打开网页。", false);
-                }
-            }, 12000);
         }
         if (!TaobaoLoginTheme.ready(view)) return;
         if (taobaoLoginChromeScript == null || transitionPanel.getVisibility() != View.VISIBLE) return;
@@ -1408,7 +1409,10 @@ public final class MainActivity extends Activity {
             view.postVisualStateCallback(expected, new WebView.VisualStateCallback() {
                 @Override public void onComplete(long requestId) {
                     if (browser == view && expected == combineGeneration && taobaoLoginVisible
-                            && !isFinishing() && !isDestroyed()) hideTransition(false);
+                            && !taobaoLoadFailed && !isFinishing() && !isDestroyed()) {
+                        stopTaobaoDeadline();
+                        hideTransition(false);
+                    }
                 }
             });
         });
