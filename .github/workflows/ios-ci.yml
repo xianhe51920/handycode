@@ -24,7 +24,7 @@ jobs:
           done
 
   ios-simulator-and-ipa:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     needs: shared-js-tests
     steps:
       - uses: actions/checkout@v4
