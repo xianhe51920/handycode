@@ -18,22 +18,35 @@ xhr.responseText=JSON.stringify({body:{orderList:[
  {orderId:'one',progressInfo:{content:'取件码：重复'}},
  {orderId:'two',orderStatusInfo:{orderStatusName:'已取消'},progressInfo:{content:'取件码：123456'}},
  {orderId:'three',progressInfo:{content:'配送中'}},
- {orderId:'four',progressInfo:{tip:'自提码:XYZ987'}}
+ {orderId:'four',progressInfo:{tip:'自提码:XYZ987'}},
+ {orderId:'five',wareInfoList:[{wareName:'驿站包裹'}],orderStatusInfo:{orderStatusName:'待取件'},promptInfo:{content:'包裹已到达菜鸟驿站，取件码为%%%，请及时领取',variableList:['12-3-4567']}},
+ {orderId:'six',wareInfoList:[{wareName:'自提柜包裹'}],orderStatusInfo:{orderStatusName:'待自提'},progressInfo:{content:'2026-11-19 已投递，开箱码【889900】'}},
+ {orderId:'seven',wareInfoList:[{wareName:'驿站待取无短码',imageUrl:'https://img10.360buyimg.com/n2/jfs/t1/fixture.jpg'}],orderStatusInfo:{orderStatusName:'等待收货'},progressInfo:{content:'您的快件已派送至【二食堂楼下驿站】，请您凭取件码领取快件',tip:'2026-11-17 11:41:34',progressLink:'https://trade.m.jd.com/order/deal_wuliu_jdm.shtml?dealId=seven'}},
+ {orderId:'eight',wareInfoList:[{wareName:'已签收订单',imageUrl:'https://evil.invalid/bad.jpg'}],orderStatusInfo:{orderStatusName:'已完成'},progressInfo:{content:'您的快件已派送至【二食堂楼下驿站】，请您凭取件码领取快件',progressLink:'https://evil.invalid/phish'}}
 ]}});
 xhr.listeners.forEach(fn=>fn.call(xhr));
 let s=f.ctx.HandyJdOrders.snapshot();
-assert.equal(s.ready,true);assert.equal(s.orders.length,3);
-assert.equal(s.orders[0].code,'A12-345');assert.equal(s.orders[1].code,'');assert.equal(s.orders[2].code,'XYZ987');
+assert.equal(s.ready,true);assert.equal(s.orders.length,7);
+assert.equal(s.orders[0].code,'A12-345');assert.equal(s.orders[1].code,'');assert.equal(s.orders[1].arrived,false);assert.equal(s.orders[2].code,'XYZ987');
+assert.equal(s.orders[3].code,'12-3-4567');assert.ok(s.orders[3].detail.includes('12-3-4567'));
+assert.equal(s.orders[4].code,'889900');
+assert.equal(s.orders[5].code,'');assert.equal(s.orders[5].arrived,true);
+assert.equal(s.orders[5].image,'https://img10.360buyimg.com/n2/jfs/t1/fixture.jpg');
+assert.ok(s.orders[5].detail.includes('二食堂楼下驿站'));assert.ok(!s.orders[5].detail.includes('请您凭取件码'));
+assert.equal(s.orders[5].link,'https://trade.m.jd.com/order/deal_wuliu_jdm.shtml?dealId=seven');
+assert.equal(s.orders[6].arrived,false,'Completed orders are not shown as pending pickup');
+assert.equal(s.orders[6].image,'','Ignore non-JD/360buyimg image URLs');
+assert.equal(s.orders[6].link,'','Ignore non-JD logistics links');
 const foreign=new f.Xhr();foreign.responseURL='https://jd.com.evil.invalid/api';foreign.send();
 foreign.responseText='{"body":{"orderList":[]}}';foreign.listeners.forEach(fn=>fn.call(foreign));
-assert.equal(f.ctx.HandyJdOrders.snapshot().orders.length,3,'Ignore non-JD responses');
+assert.equal(f.ctx.HandyJdOrders.snapshot().orders.length,7,'Ignore non-JD responses');
 f.ctx.document.querySelector=()=>({innerText:'大促异常火爆，已为您接入快速通道',getClientRects:()=>[{}]});
 s=f.ctx.HandyJdOrders.snapshot();
 assert.equal(s.problem,'busy');assert.equal(s.ready,false);assert.equal(s.orders.length,0);
 f.ctx.document.querySelector=()=>({innerText:'大促异常火爆',getClientRects:()=>[]});
 assert.equal(f.ctx.HandyJdOrders.snapshot().ready,true,'Hidden error notices do not override valid orders');
 f.ctx.document.querySelector=()=>null;
-assert.equal(f.ctx.HandyJdOrders.snapshot().orders.length,3,'Busy state does not erase previously captured orders');
+assert.equal(f.ctx.HandyJdOrders.snapshot().orders.length,7,'Busy state does not erase previously captured orders');
 f.ctx.location=new URL('https://plogin.m.jd.com/login/login');
 s=f.ctx.HandyJdOrders.snapshot();assert.equal(s.login,true);assert.equal(s.orders.length,0);
 assert.equal(fixture('https://evil.invalid/').result,null);

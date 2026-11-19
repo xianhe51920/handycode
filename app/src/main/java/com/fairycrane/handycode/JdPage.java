@@ -3,6 +3,8 @@ package com.fairycrane.handycode;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -28,18 +30,31 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 /** Official JD identity and orders, presented in one shared pickup-card scroll view. */
 final class JdPage extends FrameLayout {
     private static final String ORDERS_BUSY = "orders_busy";
+    private static final Set<String> JD_ORIGINS = Collections.singleton("https://*.jd.com");
     static final long MIN_REFRESH_MS = 320;
     private final Consumer<Boolean> session;
     private final ScrollView results;
@@ -58,6 +73,10 @@ final class JdPage extends FrameLayout {
     private long lastProbe, deadline, loadingStarted;
     private String script = "", lastSnapshot = "", error = "";
     private String loginThemeScript;
+    private final ExecutorService imageLoader = Executors.newFixedThreadPool(2);
+    private final Map<String, Bitmap> imageCache = Collections.synchronizedMap(new LinkedHashMap<String, Bitmap>(24, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) { return size() > 20; }
+    });
     private final Runnable tick = () -> {
         polling = false;
         if (paused || destroyed || web == null) return;
@@ -99,7 +118,7 @@ final class JdPage extends FrameLayout {
         card.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(16), dp(16), dp(16), dp(16));
+        body.setPadding(dp(14), dp(12), dp(14), dp(14));
         body.setMinimumHeight(dp(140));
         card.addView(body, new LinearLayout.LayoutParams(-1, -2));
         logout = new Button(context);
@@ -299,6 +318,9 @@ final class JdPage extends FrameLayout {
         web.setVisibility(INVISIBLE);
         web.setBackgroundColor(AppTheme.bg(dark));
         addView(web, 0, new FrameLayout.LayoutParams(-1, -1));
+        if (WebViewFeature.isFeatureSupported("DOCUMENT_START_SCRIPT")) {
+            WebViewCompat.addDocumentStartJavaScript(web, script, JD_ORIGINS);
+        }
         beginLoading();
         web.loadUrl(JdUrlPolicy.ORDERS);
     }
@@ -448,35 +470,133 @@ final class JdPage extends FrameLayout {
         boolean busy = ORDERS_BUSY.equals(error);
         if (rows != null) for (int index = 0; index < rows.length(); index++) {
             JSONObject order = rows.optJSONObject(index);
-            if (order == null || order.optString("code").isEmpty()) continue;
+            if (order == null) continue;
+            String codeValue = order.optString("code");
+            String statusValue = order.optString("status");
+            boolean arrived = order.optBoolean("arrived")
+                || statusValue.contains("待取") || statusValue.contains("待自提") || statusValue.contains("待提货");
+            if (codeValue.isEmpty() && !arrived) continue;
             if (count++ > 0) {
                 View gap = new View(getContext());
                 body.addView(gap, new LinearLayout.LayoutParams(-1, dp(22)));
             }
-            TextView name = text(order.optString("name", "京东订单"), 13);
-            name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-            body.addView(name);
-            TextView code = text(order.optString("code"), 26);
-            code.setPadding(0, dp(8), 0, dp(4));
-            code.setTextIsSelectable(true);
-            body.addView(code);
-            String detail = order.optString("status");
-            if (!order.optString("detail").isEmpty()) detail += (detail.isEmpty() ? "" : "\n") + order.optString("detail");
-            TextView description = text(detail, 12);
-            description.setTextColor(AppTheme.muted(dark));
-            description.setLineSpacing(dp(3), 1);
-            body.addView(description);
+            String station = order.optString("station");
+            String productName = order.optString("name", "京东订单");
+            String imageUrl = order.optString("image");
+            final String orderId = order.optString("id");
+            final String orderLink = order.optString("link");
+            boolean canOpenApp = !orderId.isEmpty() || !orderLink.isEmpty();
+
+            LinearLayout parcelBox = new LinearLayout(getContext());
+            parcelBox.setOrientation(LinearLayout.VERTICAL);
+            if (canOpenApp) parcelBox.setOnClickListener(v -> openJdAppLogistics(orderId, orderLink));
+
+            // Top row: store icon + station title (matching PDD .station-name)
+            LinearLayout stationRow = new LinearLayout(getContext());
+            stationRow.setOrientation(LinearLayout.HORIZONTAL);
+            stationRow.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView stationIcon = new ImageView(getContext());
+            stationIcon.setImageResource(R.drawable.ic_station);
+            stationIcon.setColorFilter(dark ? 0xffb3b3b3 : 0xff242b37);
+            stationRow.addView(stationIcon, new LinearLayout.LayoutParams(dp(15), dp(16)));
+            TextView stationTitle = text(!station.isEmpty() ? station : productName, 13);
+            stationTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            stationTitle.setMaxLines(1);
+            stationTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams stParams = new LinearLayout.LayoutParams(0, -2, 1);
+            stParams.leftMargin = dp(8);
+            stationRow.addView(stationTitle, stParams);
+            parcelBox.addView(stationRow);
+
+            // Indented body with left vertical guide line (matching PDD parcel timeline)
+            LinearLayout timelineRow = new LinearLayout(getContext());
+            timelineRow.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams tlParams = new LinearLayout.LayoutParams(-1, -2);
+            tlParams.topMargin = dp(4);
+
+            View guide = new View(getContext());
+            guide.setBackgroundColor(dark ? 0xff465164 : AppTheme.divider(dark));
+            LinearLayout.LayoutParams guideParams = new LinearLayout.LayoutParams(dp(1), -1);
+            guideParams.leftMargin = dp(8);
+            guideParams.rightMargin = dp(15);
+            guideParams.topMargin = dp(2);
+            guideParams.bottomMargin = dp(2);
+            timelineRow.addView(guide, guideParams);
+
+            LinearLayout innerCol = new LinearLayout(getContext());
+            innerCol.setOrientation(LinearLayout.VERTICAL);
+
+            String subAddress = !station.isEmpty() ? station : statusValue;
+            TextView addressDesc = text(subAddress, 11);
+            addressDesc.setTextColor(AppTheme.muted(dark));
+            addressDesc.setMaxLines(1);
+            addressDesc.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            innerCol.addView(addressDesc);
+
+            LinearLayout contentRow = new LinearLayout(getContext());
+            contentRow.setOrientation(LinearLayout.HORIZONTAL);
+            contentRow.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.topMargin = dp(6);
+
+            if (isAllowedImageUrl(imageUrl)) {
+                ImageView thumb = new ImageView(getContext());
+                thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                GradientDrawable thumbBg = new GradientDrawable();
+                thumbBg.setColor(dark ? 0xff222834 : 0xffedf1f7);
+                thumbBg.setCornerRadius(dp(6));
+                thumb.setBackground(thumbBg);
+                thumb.setClipToOutline(true);
+                LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(dp(58), dp(58));
+                thumbParams.rightMargin = dp(10);
+                contentRow.addView(thumb, thumbParams);
+                loadThumb(imageUrl, thumb);
+            }
+
+            LinearLayout rightCol = new LinearLayout(getContext());
+            rightCol.setOrientation(LinearLayout.VERTICAL);
+
+            if (!codeValue.isEmpty()) {
+                TextView code = text(codeValue, 20);
+                code.setTextIsSelectable(true);
+                rightCol.addView(code);
+            } else {
+                TextView hint = text("网页端暂无取件码", 19);
+                rightCol.addView(hint);
+            }
+
+            TextView shippingLine = text(productName, 11);
+            shippingLine.setTextColor(AppTheme.muted(dark));
+            shippingLine.setMaxLines(1);
+            shippingLine.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams shipParams = new LinearLayout.LayoutParams(-1, -2);
+            shipParams.topMargin = dp(3);
+            rightCol.addView(shippingLine, shipParams);
+
+            if (canOpenApp) {
+                TextView openApp = text("在京东 App 查看物流 ›", 11);
+                openApp.setTextColor(AppTheme.accentText(dark));
+                LinearLayout.LayoutParams linkParams = new LinearLayout.LayoutParams(-2, -2);
+                linkParams.topMargin = dp(3);
+                rightCol.addView(openApp, linkParams);
+            }
+
+            contentRow.addView(rightCol, new LinearLayout.LayoutParams(0, -2, 1));
+            innerCol.addView(contentRow, rowParams);
+            timelineRow.addView(innerCol, new LinearLayout.LayoutParams(0, -2, 1));
+            parcelBox.addView(timelineRow, tlParams);
+            body.addView(parcelBox);
         }
         if (count == 0) {
             body.setGravity(Gravity.CENTER);
             boolean hasSnapshot = !lastSnapshot.isEmpty();
-            TextView empty = text(busy || hasSnapshot ? "暂无待取包裹" : "取件信息暂未更新", 14);
+            TextView empty = text(hasSnapshot ? "暂无待取包裹" : "取件信息暂未更新", 14);
             empty.setGravity(Gravity.CENTER);
             body.addView(empty, new LinearLayout.LayoutParams(-1, -2));
-            String explanation = error;
+            String explanation = busy ? "京东订单页面当前繁忙，请稍后点刷新重试。" : error;
             if (hasSnapshot) explanation = error.isEmpty() ? "包裹到站后，可在这里查看取件码。"
                 : "上次查询暂无待取包裹，本次刷新未完成，请稍后重试。";
-            if (!busy) {
+            if (!explanation.isEmpty()) {
                 TextView detail = text(explanation, 12);
                 detail.setPadding(0, dp(8), 0, 0);
                 detail.setGravity(Gravity.CENTER);
@@ -489,6 +609,71 @@ final class JdPage extends FrameLayout {
             warning.setTextColor(AppTheme.muted(dark));
             body.addView(warning);
         }
+    }
+
+    private static boolean isAllowedImageUrl(String raw) {
+        if (raw == null || raw.isEmpty() || raw.length() > 500) return false;
+        android.net.Uri uri = android.net.Uri.parse(raw);
+        if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+        String host = uri.getHost();
+        if (host == null) return false;
+        String lower = host.toLowerCase(java.util.Locale.ROOT);
+        return lower.equals("360buyimg.com") || lower.endsWith(".360buyimg.com")
+            || lower.equals("jd.com") || lower.endsWith(".jd.com");
+    }
+
+    private void loadThumb(String url, ImageView target) {
+        Bitmap cached = imageCache.get(url);
+        if (cached != null) { target.setImageBitmap(cached); return; }
+        target.setTag(url);
+        imageLoader.execute(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(6000);
+                if (conn.getResponseCode() != 200) return;
+                try (InputStream in = conn.getInputStream()) {
+                    Bitmap bmp = BitmapFactory.decodeStream(in);
+                    if (bmp == null) return;
+                    imageCache.put(url, bmp);
+                    post(() -> {
+                        if (!destroyed && url.equals(target.getTag())) target.setImageBitmap(bmp);
+                    });
+                }
+            } catch (IOException ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        });
+    }
+
+    private void openJdAppLogistics(String orderId, String orderLink) {
+        try {
+            JSONObject params = new JSONObject();
+            params.put("category", "jump");
+            if (!orderId.isEmpty()) {
+                params.put("des", "orderTrack");
+                params.put("orderId", orderId);
+            } else if (JdUrlPolicy.allowed(orderLink)) {
+                params.put("des", "m");
+                params.put("url", orderLink);
+            } else {
+                params.put("des", "orderlist");
+            }
+            android.net.Uri uri = android.net.Uri.parse("openapp.jdmobile://virtual")
+                .buildUpon()
+                .appendQueryParameter("params", params.toString())
+                .build();
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, uri);
+            intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            intent.setPackage("com.jingdong.app.mall");
+            getContext().startActivity(intent);
+        } catch (android.content.ActivityNotFoundException | SecurityException unavailable) {
+            android.widget.Toast.makeText(getContext(), "无法打开京东物流页，请确认已安装京东 App",
+                android.widget.Toast.LENGTH_LONG).show();
+        } catch (JSONException ignored) {}
     }
 
     private void reload() {
@@ -554,6 +739,7 @@ final class JdPage extends FrameLayout {
 
     void destroyPage() {
         destroyed = true;
+        imageLoader.shutdownNow();
         resetSessionView();
         identity.destroyPage();
     }

@@ -32,8 +32,14 @@ function Invoke-Checked {
 }
 function Invoke-Javac {
     param([string]$LogPath,[string[]]$Arguments)
-    & $javac @Arguments *> $LogPath
-    $compileExit = $LASTEXITCODE
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $javac @Arguments *> $LogPath
+        $compileExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
     Get-Content -LiteralPath $LogPath
     if ($compileExit -ne 0) {throw "javac failed ($compileExit). See $LogPath"}
 }

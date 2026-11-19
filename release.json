@@ -1,14 +1,14 @@
 {
-  "name": "HandyCode",
-  "version": "0.8.2",
-  "versionCode": 36,
-  "configuration": "Release",
-  "tag": "v0.8.2",
-  "package": "com.fairycrane.handycode",
-  "file": "HandyCode-0.8.2-release.apk",
-  "sha256": "219707454d47f1c7eaa9047d002ec27c7975a648811f92023c6faec99b05c6c7",
-  "bytes": 588347,
-  "minSdk": 26,
-  "targetSdk": 35,
-  "signerCertificateSha256": "aaf9b51c6d7e8b5e4a0d89b6b0067536ba45436a8e567ca12129787e936203e4"
+    "name":  "HandyCode",
+    "version":  "0.8.3",
+    "versionCode":  37,
+    "configuration":  "Release",
+    "tag":  "v0.8.3",
+    "package":  "com.fairycrane.handycode",
+    "file":  "HandyCode-0.8.3-release.apk",
+    "sha256":  "18c734256c5cee9138f5f3925d30550fbd94fbd55b3f03e833085c4142b177f6",
+    "bytes":  588420,
+    "minSdk":  26,
+    "targetSdk":  35,
+    "signerCertificateSha256":  "aaf9b51c6d7e8b5e4a0d89b6b0067536ba45436a8e567ca12129787e936203e4"
 }
