@@ -17,12 +17,12 @@ targets:
       - path: HandyCode
         excludes:
           - Info.plist
-    resources:
       - path: HandyCode/Assets.xcassets
       - path: ../app/src/main/assets
-        type: folder
+        excludes:
+          - icons/**
+          - licenses/**
       - path: ../app/src/main/res/drawable-nodpi
-        type: folder
     info:
       path: HandyCode/Info.plist
     settings:

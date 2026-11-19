@@ -76,6 +76,9 @@ final class ThemeToggleButton: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = "切换日夜模式"
         accessibilityIdentifier = "theme_toggle"
         track.isUserInteractionEnabled = false
         track.layer.cornerRadius = 15

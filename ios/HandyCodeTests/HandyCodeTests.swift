@@ -64,6 +64,7 @@ final class HandyCodeTests: XCTestCase {
 
         motion.drag(start: 1, delta: -40, width: 400)
         XCTAssertEqual(motion.target(cancelled: false, velocityPt: -700, distancePt: -40), 2)
+        motion.drag(start: 1, delta: 40, width: 400)
         XCTAssertEqual(motion.target(cancelled: false, velocityPt: 700, distancePt: 40), 0)
     }
 
@@ -80,6 +81,10 @@ final class HandyCodeTests: XCTestCase {
             XCTAssertNotNil(text, "Missing bundled asset: \(file)")
             XCTAssertFalse(text?.isEmpty ?? true, "Empty bundled asset: \(file)")
         }
+        XCTAssertNotNil(PlatformIcons.icon(for: 0))
+        XCTAssertNotNil(PlatformIcons.icon(for: 1))
+        XCTAssertNotNil(PlatformIcons.icon(for: 2))
+        XCTAssertNotNil(PlatformIcons.icon(for: 3))
     }
 
     func testWKWebViewExecutesBundledScriptsAndConsoleBridge() {
@@ -89,41 +94,67 @@ final class HandyCodeTests: XCTestCase {
                 exp.fulfill()
             }
         }
+        let navSpy = NavigationSpy()
         let web = WebAssets.configuredWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 480), messageHandler: bridgeSpy)
-        web.loadHTMLString("<html><body><div id='identity-content'><div data-hc-barcode style='width:200px;height:60px'></div></div></body></html>",
-                           baseURL: URL(string: "https://handycode.invalid/"))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        web.navigationDelegate = navSpy
+        navSpy.onFinish = {
             web.evaluateJavaScript(ScanCodeVisibility.script) { result, error in
                 XCTAssertNil(error)
                 XCTAssertEqual(result as? Bool, true)
                 web.evaluateJavaScript("console.log('__HANDYCODE_PHASE__:test');", completionHandler: nil)
             }
         }
-        wait(for: [exp], timeout: 5.0)
+        web.loadHTMLString("<html><body><div id='identity-content'><div data-hc-barcode style='width:200px;height:60px'></div></div></body></html>",
+                           baseURL: URL(string: "https://handycode.invalid/"))
+        withExtendedLifetime((web, bridgeSpy, navSpy)) {
+            wait(for: [exp], timeout: 15.0)
+        }
     }
 
     func testJdOrdersScriptExtractsFixtureParcelInWKWebView() {
         let exp = expectation(description: "jd-orders.js parses fixture orders in WKWebView")
         let jdOrdersScript = WebAssets.readText("jd-orders.js") ?? ""
         XCTAssertFalse(jdOrdersScript.isEmpty)
+        let navSpy = NavigationSpy()
         let web = WebAssets.configuredWebView(frame: CGRect(x: 0, y: 0, width: 375, height: 667),
                                               documentStartScripts: [jdOrdersScript])
+        web.navigationDelegate = navSpy
         let html = """
         <html><body>
-        <div id="order-fixture"></div>
+        <ul>
+          <li class="order-item">
+            <a href="https://trade.m.jd.com/order/detail?orderId=9001">测试商品包裹</a>
+            <span>【菜鸟驿站测试点】取件码：A12-345</span>
+          </li>
+        </ul>
         </body></html>
         """
-        web.loadHTMLString(html, baseURL: URL(string: "https://trade.m.jd.com/order/orderlist_jdm.shtml"))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            let check = jdOrdersScript
-            web.evaluateJavaScript(check) { result, error in
+        navSpy.onFinish = {
+            web.evaluateJavaScript(jdOrdersScript) { result, error in
                 XCTAssertNil(error)
                 let dict = result as? [String: Any]
                 XCTAssertEqual(dict?["login"] as? Bool, false)
+                XCTAssertEqual(dict?["ready"] as? Bool, true)
+                let orders = dict?["orders"] as? [[String: Any]]
+                XCTAssertEqual(orders?.count, 1)
+                XCTAssertEqual(orders?.first?["id"] as? String, "9001")
+                XCTAssertEqual(orders?.first?["code"] as? String, "A12-345")
                 exp.fulfill()
             }
         }
-        wait(for: [exp], timeout: 5.0)
+        web.loadHTMLString(html, baseURL: URL(string: "https://trade.m.jd.com/order/orderlist_jdm.shtml"))
+        withExtendedLifetime((web, navSpy)) {
+            wait(for: [exp], timeout: 15.0)
+        }
+    }
+
+    func testJdPageViewThemeAndLayout() {
+        let jd = JdPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        jd.setDark(false)
+        jd.layoutIfNeeded()
+        jd.setDark(true)
+        jd.layoutIfNeeded()
+        XCTAssertGreaterThan(jd.subviews.count, 0)
     }
 
     func testMainViewControllerInstantiatesAllFourPages() {
@@ -136,6 +167,13 @@ final class HandyCodeTests: XCTestCase {
             vc.view.layoutIfNeeded()
         }
         XCTAssertEqual(vc.view.subviews.count, 3)
+    }
+}
+
+private final class NavigationSpy: NSObject, WKNavigationDelegate {
+    var onFinish: (() -> Void)?
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        onFinish?()
     }
 }
 

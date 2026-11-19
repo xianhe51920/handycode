@@ -67,6 +67,26 @@ jobs:
             xcrun xcresulttool export attachments \
               --path build/ios-TestResult.xcresult \
               --output-path build/ios-screenshots || true
+            python3 - <<'PY'
+          import json, os, shutil
+          root = "build/ios-screenshots"
+          manifest = os.path.join(root, "manifest.json")
+          if os.path.exists(manifest):
+              data = json.load(open(manifest))
+              for test in data:
+                  for att in test.get("attachments", []):
+                      src = os.path.join(root, att.get("exportedFileName", ""))
+                      suggested = att.get("suggestedHumanReadableName", "")
+                      if os.path.isfile(src) and suggested.lower().endswith(".png"):
+                          shutil.copy2(src, os.path.join(root, os.path.basename(suggested)))
+          for fname in os.listdir(root):
+              fpath = os.path.join(root, fname)
+              if os.path.isfile(fpath) and "." not in fname:
+                  with open(fpath, "rb") as f:
+                      sig = f.read(8)
+                  if sig == b"\x89PNG\r\n\x1a\n":
+                      os.rename(fpath, fpath + ".png")
+          PY
           fi
       - name: Build unsigned Release IPA
         run: |
