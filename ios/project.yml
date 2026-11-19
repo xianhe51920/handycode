@@ -17,7 +17,6 @@ targets:
       - path: HandyCode
         excludes:
           - Info.plist
-      - path: HandyCode/Assets.xcassets
       - path: ../app/src/main/assets
         excludes:
           - icons/**
@@ -29,6 +28,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fairycrane.handycode
         INFOPLIST_FILE: HandyCode/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   HandyCodeTests:
     type: bundle.unit-test
     platform: iOS

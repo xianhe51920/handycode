@@ -2,14 +2,14 @@ import UIKit
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
-
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let win = UIWindow(frame: UIScreen.main.bounds)
-        win.rootViewController = MainViewController()
-        win.makeKeyAndVisible()
-        window = win
-        return true
+        true
+    }
+
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 }

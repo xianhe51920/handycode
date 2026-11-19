@@ -7,6 +7,7 @@ final class HandyCodeUITests: XCTestCase {
 
     func testFourTabsAndThemeToggleInSimulator() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-ui_test_reset"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
 

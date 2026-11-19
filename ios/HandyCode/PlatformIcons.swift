@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 
 enum PlatformIcons {
     static func icon(for index: Int) -> UIImage? {
@@ -9,6 +10,14 @@ enum PlatformIcons {
         case 3: return makeBadge(text: "JD", color: UIColor(argb: 0xFFE1251B))
         default: return nil
         }
+    }
+
+    static func themeImage(dark: Bool) -> UIImage? {
+        let name = dark ? "glass-theme-dark" : "glass-theme-light"
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "assets")
+                ?? Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "WebAssets")
+                ?? Bundle.main.url(forResource: name, withExtension: "png") else { return nil }
+        return UIImage(contentsOfFile: url.path)
     }
 
     private static func loadImage(_ name: String, ext: String) -> UIImage? {
@@ -68,56 +77,104 @@ enum PlatformIcons {
 }
 
 final class ThemeToggleButton: UIControl {
-    private let track = UIView()
-    private let thumb = UIView()
-    private let glyph = UIImageView()
+    private let backupView = UIImageView()
+    private var renderer: WKWebView?
+    private var rendererReady = false
     private var dark = false
     var onToggle: ((Bool) -> Void)?
+
+    private final class WeakGlassHandler: NSObject, WKScriptMessageHandler {
+        weak var owner: ThemeToggleButton?
+        init(_ owner: ThemeToggleButton) { self.owner = owner }
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            owner?.handleGlassMessage(message.body as? String ?? "")
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true
         accessibilityTraits = .button
-        accessibilityLabel = "切换日夜模式"
         accessibilityIdentifier = "theme_toggle"
-        track.isUserInteractionEnabled = false
-        track.layer.cornerRadius = 15
-        track.layer.borderWidth = 1
-        addSubview(track)
 
-        thumb.isUserInteractionEnabled = false
-        thumb.layer.cornerRadius = 12
-        thumb.layer.shadowColor = UIColor.black.cgColor
-        thumb.layer.shadowOpacity = 0.16
-        thumb.layer.shadowRadius = 4
-        thumb.layer.shadowOffset = CGSize(width: 0, height: 1)
-        track.addSubview(thumb)
+        backupView.contentMode = .scaleAspectFit
+        backupView.isUserInteractionEnabled = false
+        addSubview(backupView)
 
-        glyph.contentMode = .scaleAspectFit
-        thumb.addSubview(glyph)
-
+        setupRenderer()
         addTarget(self, action: #selector(handleTap), for: .touchUpInside)
         setDark(false, animated: false)
     }
 
     required init?(coder: NSCoder) { nil }
 
+    deinit {
+        renderer?.configuration.userContentController.removeScriptMessageHandler(forName: "hcGlass")
+    }
+
+    private func setupRenderer() {
+        guard let script = WebAssets.readText("glass-theme-switch.js"), !script.isEmpty else { return }
+        let config = WKWebViewConfiguration()
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        let controller = WKUserContentController()
+        controller.add(WeakGlassHandler(self), name: "hcGlass")
+        config.userContentController = controller
+
+        let web = WKWebView(frame: bounds, configuration: config)
+        web.isOpaque = false
+        web.backgroundColor = .clear
+        web.scrollView.backgroundColor = .clear
+        web.scrollView.isScrollEnabled = false
+        web.isUserInteractionEnabled = false
+        web.alpha = 0
+        addSubview(web)
+        renderer = web
+
+        let html = """
+        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+        <style>html,body{margin:0;overflow:hidden;background:transparent}canvas{display:block;width:100vw;height:100vh;touch-action:none}</style>
+        </head><body><canvas id="gl"></canvas><script>
+        window.HandyCodeGlassInitialDark=\(dark ? "true" : "false");
+        window.HandyCodeGlassBridge={
+          ready:function(){try{window.webkit.messageHandlers.hcGlass.postMessage('ready');}catch(e){}},
+          unavailable:function(){try{window.webkit.messageHandlers.hcGlass.postMessage('unavailable');}catch(e){}},
+          choose:function(){},blend:function(){},settled:function(){}
+        };
+        try{\(script)}catch(e){window.HandyCodeGlassBridge.unavailable();}
+        </script></body></html>
+        """
+        web.loadHTMLString(html, baseURL: nil)
+    }
+
+    private func handleGlassMessage(_ body: String) {
+        if body == "ready" {
+            rendererReady = true
+            let js = "window.HandyCodeSetGlassDark&&window.HandyCodeSetGlassDark(\(dark ? "true" : "false"));"
+            renderer?.evaluateJavaScript(js, completionHandler: nil)
+            UIView.animate(withDuration: 0.16) {
+                self.renderer?.alpha = 1
+            }
+        } else if body == "unavailable" {
+            rendererReady = false
+            renderer?.alpha = 0
+        }
+    }
+
     func setDark(_ dark: Bool, animated: Bool) {
         self.dark = dark
         accessibilityLabel = dark ? "切换外观模式，当前为深色" : "切换外观模式，当前为浅色"
-        let apply = {
-            self.track.backgroundColor = dark ? UIColor(argb: 0xFF141822) : UIColor(argb: 0xFFE6EAF2)
-            self.track.layer.borderColor = AppTheme.border(dark).cgColor
-            self.thumb.backgroundColor = dark ? UIColor(argb: 0xFF283246) : .white
-            let symbolName = dark ? "moon.fill" : "sun.max.fill"
-            self.glyph.image = UIImage(systemName: symbolName)?.withRenderingMode(.alwaysTemplate)
-            self.glyph.tintColor = dark ? UIColor(argb: 0xFF9EC5FF) : UIColor(argb: 0xFFE68A1E)
-            self.layoutThumb()
-        }
+        let nextImage = PlatformIcons.themeImage(dark: dark)
         if animated {
-            UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseInOut], animations: apply)
+            UIView.transition(with: backupView, duration: 0.22, options: .transitionCrossDissolve) {
+                self.backupView.image = nextImage
+            }
         } else {
-            apply()
+            backupView.image = nextImage
+        }
+        if rendererReady {
+            let js = "window.HandyCodeSetGlassDark&&window.HandyCodeSetGlassDark(\(dark ? "true" : "false"));"
+            renderer?.evaluateJavaScript(js, completionHandler: nil)
         }
     }
 
@@ -125,17 +182,9 @@ final class ThemeToggleButton: UIControl {
         onToggle?(!dark)
     }
 
-    private func layoutThumb() {
-        let h: CGFloat = 30
-        let w: CGFloat = 56
-        track.frame = CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
-        let x: CGFloat = dark ? w - 27 : 3
-        thumb.frame = CGRect(x: x, y: 3, width: 24, height: 24)
-        glyph.frame = CGRect(x: 5, y: 5, width: 14, height: 14)
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
-        layoutThumb()
+        backupView.frame = bounds
+        renderer?.frame = bounds
     }
 }

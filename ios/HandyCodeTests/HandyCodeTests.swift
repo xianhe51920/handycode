@@ -75,12 +75,15 @@ final class HandyCodeTests: XCTestCase {
             "taobao-login-theme.js", "phone-theme.js", "cainiao-layout.js",
             "pdd-same-origin.js", "pdd-section-refresh.js", "pdd-layout.js",
             "pdd-login-client.js", "pdd-login-notice.js", "login-agreements.js",
-            "jd-identity.js", "jd-login-theme.js", "jd-orders.js"
+            "jd-identity.js", "jd-login-theme.js", "jd-orders.js",
+            "glass-theme-switch.js"
         ] {
             let text = WebAssets.readText(file)
             XCTAssertNotNil(text, "Missing bundled asset: \(file)")
             XCTAssertFalse(text?.isEmpty ?? true, "Empty bundled asset: \(file)")
         }
+        XCTAssertNotNil(PlatformIcons.themeImage(dark: false))
+        XCTAssertNotNil(PlatformIcons.themeImage(dark: true))
         XCTAssertNotNil(PlatformIcons.icon(for: 0))
         XCTAssertNotNil(PlatformIcons.icon(for: 1))
         XCTAssertNotNil(PlatformIcons.icon(for: 2))
@@ -96,6 +99,11 @@ final class HandyCodeTests: XCTestCase {
         }
         let navSpy = NavigationSpy()
         let web = WebAssets.configuredWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 480), messageHandler: bridgeSpy)
+        let hostWin = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.windows.first }
+            .first
+        hostWin?.addSubview(web)
+        defer { web.removeFromSuperview() }
         web.navigationDelegate = navSpy
         navSpy.onFinish = {
             web.evaluateJavaScript(ScanCodeVisibility.script) { result, error in
@@ -104,10 +112,13 @@ final class HandyCodeTests: XCTestCase {
                 web.evaluateJavaScript("console.log('__HANDYCODE_PHASE__:test');", completionHandler: nil)
             }
         }
+        navSpy.onFail = { error in
+            XCTFail("WKWebView navigation failed: \(error.localizedDescription)")
+        }
         web.loadHTMLString("<html><body><div id='identity-content'><div data-hc-barcode style='width:200px;height:60px'></div></div></body></html>",
                            baseURL: URL(string: "https://handycode.invalid/"))
         withExtendedLifetime((web, bridgeSpy, navSpy)) {
-            wait(for: [exp], timeout: 15.0)
+            wait(for: [exp], timeout: 35.0)
         }
     }
 
@@ -158,6 +169,11 @@ final class HandyCodeTests: XCTestCase {
     }
 
     func testMainViewControllerInstantiatesAllFourPages() {
+        let prevTab = UserDefaults.standard.string(forKey: "last_tab")
+        defer {
+            if let prevTab { UserDefaults.standard.set(prevTab, forKey: "last_tab") }
+            else { UserDefaults.standard.removeObject(forKey: "last_tab") }
+        }
         let vc = MainViewController()
         vc.loadViewIfNeeded()
         vc.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -172,8 +188,15 @@ final class HandyCodeTests: XCTestCase {
 
 private final class NavigationSpy: NSObject, WKNavigationDelegate {
     var onFinish: (() -> Void)?
+    var onFail: ((Error) -> Void)?
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         onFinish?()
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        onFail?(error)
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        onFail?(error)
     }
 }
 

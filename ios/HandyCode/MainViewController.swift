@@ -61,6 +61,10 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
 
     private func loadInitialPreferences() {
         let defaults = UserDefaults.standard
+        if ProcessInfo.processInfo.arguments.contains("-ui_test_reset") {
+            defaults.removeObject(forKey: Self.keyThemeMode)
+            defaults.removeObject(forKey: Self.keyLastTab)
+        }
         let storedTheme = defaults.integer(forKey: Self.keyThemeMode)
         if storedTheme == AppThemeMode.dark.rawValue {
             dark = true
@@ -400,8 +404,8 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         let barH: CGFloat = 64
 
         header.frame = CGRect(x: 0, y: safe.top, width: w, height: headerH)
-        titleViewport.frame = CGRect(x: 16, y: 8, width: w - 104, height: 40)
-        themeToggle.frame = CGRect(x: w - 76, y: 8, width: 64, height: 40)
+        titleViewport.frame = CGRect(x: 16, y: 8, width: w - 112, height: 40)
+        themeToggle.frame = CGRect(x: w - 86, y: 6, width: 74, height: 44)
         bottomBar.frame = CGRect(x: 0, y: h - safe.bottom - barH, width: w, height: barH)
         viewport.frame = CGRect(x: 0, y: header.frame.maxY, width: w, height: max(120, bottomBar.frame.minY - header.frame.maxY))
         renderSwitchPosition()
