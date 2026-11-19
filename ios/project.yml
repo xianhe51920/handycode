@@ -36,6 +36,9 @@ targets:
       - path: HandyCodeTests
     dependencies:
       - target: HandyCode
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
   HandyCodeUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -43,6 +46,9 @@ targets:
       - path: HandyCodeUITests
     dependencies:
       - target: HandyCode
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
 schemes:
   HandyCode:
     build:
