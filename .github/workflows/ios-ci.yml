@@ -1,0 +1,97 @@
+name: iOS Build and Simulator Tests
+
+on:
+  push:
+    branches:
+      - codex/ios-version
+  workflow_dispatch:
+
+jobs:
+  shared-js-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+      - name: Install JS test dependencies and run shared JS/DOM tests
+        run: |
+          npm ci
+          for t in tests/*.test.mjs; do
+            echo "Running $t"
+            node "$t"
+          done
+
+  ios-simulator-and-ipa:
+    runs-on: macos-latest
+    needs: shared-js-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and inspect available simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+      - name: Install XcodeGen and generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+      - name: Run Unit & UI Tests on iOS Simulator
+        run: |
+          set -o pipefail
+          SIM_ID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for runtime, devs in sorted(data.get('devices', {}).items(), reverse=True):
+              if 'iOS' not in runtime:
+                  continue
+              for d in devs:
+                  if d.get('isAvailable') and 'iPhone' in d.get('name', ''):
+                      print(d['udid'])
+                      sys.exit(0)
+          sys.exit(1)
+          ")
+          echo "Using Simulator UDID: $SIM_ID"
+          cd ios
+          xcodebuild test \
+            -project HandyCode.xcodeproj \
+            -scheme HandyCode \
+            -destination "platform=iOS Simulator,id=$SIM_ID" \
+            -resultBundlePath ../build/ios-TestResult.xcresult
+      - name: Extract Simulator UI screenshots from xcresult
+        if: always()
+        run: |
+          mkdir -p build/ios-screenshots
+          if [ -d build/ios-TestResult.xcresult ]; then
+            xcrun xcresulttool export attachments \
+              --path build/ios-TestResult.xcresult \
+              --output-path build/ios-screenshots || true
+          fi
+      - name: Build unsigned Release IPA
+        run: |
+          cd ios
+          xcodebuild build \
+            -project HandyCode.xcodeproj \
+            -scheme HandyCode \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ../build/ios-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          mkdir -p ../dist/Payload
+          cp -R ../build/ios-derived/Build/Products/Release-iphoneos/HandyCode.app ../dist/Payload/
+          cd ../dist
+          zip -r HandyCode-0.8.4-ios-unsigned.ipa Payload
+          shasum -a 256 HandyCode-0.8.4-ios-unsigned.ipa > HandyCode-0.8.4-ios-unsigned.ipa.sha256
+          rm -rf Payload
+      - name: Upload iOS artifacts and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: handycode-ios-0.8.4
+          path: |
+            dist/HandyCode-0.8.4-ios-unsigned.ipa
+            dist/HandyCode-0.8.4-ios-unsigned.ipa.sha256
+            build/ios-screenshots/

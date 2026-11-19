@@ -1,0 +1,56 @@
+name: HandyCode
+options:
+  bundleIdPrefix: com.fairycrane
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.8.4"
+    CURRENT_PROJECT_VERSION: "38"
+targets:
+  HandyCode:
+    type: application
+    platform: iOS
+    sources:
+      - path: HandyCode
+        excludes:
+          - Info.plist
+    resources:
+      - path: HandyCode/Assets.xcassets
+      - path: ../app/src/main/assets
+        type: folder
+      - path: ../app/src/main/res/drawable-nodpi
+        type: folder
+    info:
+      path: HandyCode/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fairycrane.handycode
+        INFOPLIST_FILE: HandyCode/Info.plist
+  HandyCodeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HandyCodeTests
+    dependencies:
+      - target: HandyCode
+  HandyCodeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: HandyCodeUITests
+    dependencies:
+      - target: HandyCode
+schemes:
+  HandyCode:
+    build:
+      targets:
+        HandyCode: all
+        HandyCodeTests: [test]
+        HandyCodeUITests: [test]
+    test:
+      targets:
+        - HandyCodeTests
+        - HandyCodeUITests
