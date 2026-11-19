@@ -174,9 +174,13 @@ final class JdPage extends FrameLayout {
     }
 
     private TextView text(String value, int size) {
+        return textDp(value, size);
+    }
+
+    private TextView textDp(String value, float size) {
         TextView label = new TextView(getContext());
         label.setText(value);
-        label.setTextSize(size);
+        label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, size);
         label.setTextColor(AppTheme.ink(dark));
         label.setFontFeatureSettings("tnum");
         return label;
@@ -247,6 +251,7 @@ final class JdPage extends FrameLayout {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setTextZoom(100);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -499,7 +504,7 @@ final class JdPage extends FrameLayout {
             stationIcon.setImageResource(R.drawable.ic_station);
             stationIcon.setColorFilter(dark ? 0xffb3b3b3 : 0xff242b37);
             stationRow.addView(stationIcon, new LinearLayout.LayoutParams(dp(15), dp(16)));
-            TextView stationTitle = text(!station.isEmpty() ? station : productName, 13);
+            TextView stationTitle = textDp(!station.isEmpty() ? station : productName, 13);
             stationTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             stationTitle.setMaxLines(1);
             stationTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -527,7 +532,7 @@ final class JdPage extends FrameLayout {
             innerCol.setOrientation(LinearLayout.VERTICAL);
 
             String subAddress = !station.isEmpty() ? station : statusValue;
-            TextView addressDesc = text(subAddress, 11);
+            TextView addressDesc = textDp(subAddress, 11);
             addressDesc.setTextColor(AppTheme.muted(dark));
             addressDesc.setMaxLines(1);
             addressDesc.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -557,15 +562,15 @@ final class JdPage extends FrameLayout {
             rightCol.setOrientation(LinearLayout.VERTICAL);
 
             if (!codeValue.isEmpty()) {
-                TextView code = text(codeValue, 20);
+                TextView code = textDp(codeValue, 20);
                 code.setTextIsSelectable(true);
                 rightCol.addView(code);
             } else {
-                TextView hint = text("网页端暂无取件码", 19);
+                TextView hint = textDp("网页端暂无取件码", 19);
                 rightCol.addView(hint);
             }
 
-            TextView shippingLine = text(productName, 11);
+            TextView shippingLine = textDp(productName, 11);
             shippingLine.setTextColor(AppTheme.muted(dark));
             shippingLine.setMaxLines(1);
             shippingLine.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -574,7 +579,7 @@ final class JdPage extends FrameLayout {
             rightCol.addView(shippingLine, shipParams);
 
             if (canOpenApp) {
-                TextView openApp = text("在京东 App 查看物流 ›", 11);
+                TextView openApp = textDp("在京东 App 查看物流 ›", 11);
                 openApp.setTextColor(AppTheme.accentText(dark));
                 LinearLayout.LayoutParams linkParams = new LinearLayout.LayoutParams(-2, -2);
                 linkParams.topMargin = dp(3);

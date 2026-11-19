@@ -62,11 +62,11 @@ final class JdIdentityCard extends LinearLayout {
         heading.setPadding(dp(14), dp(12), dp(14), dp(12));
         title = new TextView(context);
         title.setText("身份码");
-        title.setTextSize(16);
+        title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         refresh = new TextView(context);
-        refresh.setTextSize(12);
+        refresh.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 12);
         refresh.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         refresh.setMinWidth((int)Math.ceil(refresh.getPaint().measureText("刷新中")));
         refresh.setPadding(0, dp(5), 0, dp(5));
@@ -80,7 +80,7 @@ final class JdIdentityCard extends LinearLayout {
         addView(content, new LinearLayout.LayoutParams(-1, contentHeight));
         notice = new TextView(context);
         notice.setGravity(Gravity.CENTER);
-        notice.setTextSize(14);
+        notice.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 14);
         notice.setPadding(dp(20), dp(20), dp(20), dp(20));
         notice.setOnClickListener(v -> {
             if (loginRequired) { loginOpen = true; present(); changed.run(); }
@@ -156,6 +156,7 @@ final class JdIdentityCard extends LinearLayout {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setTextZoom(100);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
