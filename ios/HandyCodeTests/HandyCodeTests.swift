@@ -101,6 +101,42 @@ final class HandyCodeTests: XCTestCase {
         }
         wait(for: [exp], timeout: 5.0)
     }
+
+    func testJdOrdersScriptExtractsFixtureParcelInWKWebView() {
+        let exp = expectation(description: "jd-orders.js parses fixture orders in WKWebView")
+        let jdOrdersScript = WebAssets.readText("jd-orders.js") ?? ""
+        XCTAssertFalse(jdOrdersScript.isEmpty)
+        let web = WebAssets.configuredWebView(frame: CGRect(x: 0, y: 0, width: 375, height: 667),
+                                              documentStartScripts: [jdOrdersScript])
+        let html = """
+        <html><body>
+        <div id="order-fixture"></div>
+        </body></html>
+        """
+        web.loadHTMLString(html, baseURL: URL(string: "https://trade.m.jd.com/order/orderlist_jdm.shtml"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let check = jdOrdersScript
+            web.evaluateJavaScript(check) { result, error in
+                XCTAssertNil(error)
+                let dict = result as? [String: Any]
+                XCTAssertEqual(dict?["login"] as? Bool, false)
+                exp.fulfill()
+            }
+        }
+        wait(for: [exp], timeout: 5.0)
+    }
+
+    func testMainViewControllerInstantiatesAllFourPages() {
+        let vc = MainViewController()
+        vc.loadViewIfNeeded()
+        vc.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        vc.view.layoutIfNeeded()
+        for tab in 0..<4 {
+            vc.selectPage(tab)
+            vc.view.layoutIfNeeded()
+        }
+        XCTAssertEqual(vc.view.subviews.count, 3)
+    }
 }
 
 private final class ConsoleBridgeSpy: NSObject, WKScriptMessageHandler {
