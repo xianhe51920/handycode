@@ -1,0 +1,251 @@
+name: iOS Auto-Sign & Distribute (Free Ad-Hoc)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 免费无限续签流水线
+#
+# 工作原理：
+#   1. 每6天自动触发（Apple 免费开发者证书有效期7天，提前1天续签）
+#   2. 用 xcodebuild 在 macOS runner 上以 Automatic Signing + 免费 Apple ID 签名
+#   3. 生成带签名的 IPA + OTA 安装清单(manifest.plist)，上传到 GitHub Release
+#   4. 配套 AltServer（PC端）每7天自动帮手机续签，双保险
+#
+# 需要在 GitHub → Settings → Secrets and variables → Actions 配置以下 Secrets：
+#   APPLE_ID               你的 Apple ID 邮箱
+#   APPLE_ID_PASSWORD      App 专用密码（appleid.apple.com 生成，非账号密码）
+#   APPLE_TEAM_ID          Team ID（免费账号登录 developer.apple.com 右上角查看，格式 XXXXXXXXXX）
+#   IOS_DEVICE_UDID        (可选) 目标 iPhone UDID，填了才能生成可安装的 Ad-Hoc IPA
+#                          Settings → General → About → 滚到底部复制 / Finder中查看
+#
+# ⚠️  免费 Apple ID 限制：
+#     - 每7天需要重签（本 workflow 自动处理）
+#     - Ad-Hoc 最多注册 100 台设备（免费额度内完全够用）
+#     - 不支持 Push Notifications / iCloud 等付费能力
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # 每6天 UTC 02:00 自动触发（比7天提前1天，留余量）
+    - cron: "0 2 */6 * *"
+  workflow_dispatch:
+    inputs:
+      device_udid:
+        description: "目标 iPhone UDID（覆盖 Secret 中的值，可选）"
+        required: false
+        default: ""
+
+env:
+  APP_NAME: HandyCode
+  BUNDLE_ID: com.fairycrane.handycode
+  VERSION: "0.8.4"
+  SCHEME: HandyCode
+  PROJECT: ios/HandyCode.xcodeproj
+
+jobs:
+  sign-and-distribute:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── 2. 生成 Xcode 工程 ───────────────────────────────────────────────────
+      - name: Install XcodeGen and generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      # ── 3. 安装 Fastlane + 插件 ──────────────────────────────────────────────
+      - name: Install Fastlane
+        run: |
+          gem install fastlane --no-document
+          fastlane --version
+
+      # ── 4. 写 Fastfile（临时，不入库）────────────────────────────────────────
+      - name: Generate Fastfile for ad-hoc signing
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DEVICE_UDID: ${{ inputs.device_udid || secrets.IOS_DEVICE_UDID }}
+        run: |
+          mkdir -p fastlane
+          cat > fastlane/Fastfile << 'FASTFILE'
+          default_platform(:ios)
+
+          platform :ios do
+            lane :sign_adhoc do
+              # 注册设备（如果提供了 UDID）
+              udid = ENV["DEVICE_UDID"]
+              if udid && !udid.empty?
+                register_devices(
+                  devices: { "My iPhone" => udid },
+                  team_id: ENV["APPLE_TEAM_ID"]
+                )
+              end
+
+              # 自动同步 Ad-Hoc 证书和 Provisioning Profile
+              # sigh = 自动下载/刷新 mobileprovision（免费账号用 development，ad_hoc 需付费）
+              # 免费账号用 development profile（可在已注册设备安装）
+              get_provisioning_profile(
+                app_identifier: ENV["BUNDLE_ID"] || "com.fairycrane.handycode",
+                username: ENV["APPLE_ID"],
+                team_id: ENV["APPLE_TEAM_ID"],
+                development: true,
+                skip_install: false,
+                output_path: "./build/profiles"
+              )
+
+              # 签名 IPA
+              build_app(
+                scheme: "HandyCode",
+                project: "ios/HandyCode.xcodeproj",
+                configuration: "Release",
+                export_method: "development",
+                output_directory: "./dist",
+                output_name: "HandyCode-#{ENV['VERSION'] || '0.8.4'}-signed.ipa",
+                derived_data_path: "./build/ios-derived",
+                xcargs: "CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}",
+                export_options: {
+                  method: "development",
+                  teamID: ENV["APPLE_TEAM_ID"],
+                  provisioningProfiles: {
+                    (ENV["BUNDLE_ID"] || "com.fairycrane.handycode") => "iOS Team Provisioning Profile: *"
+                  }
+                },
+                silent: false
+              )
+            end
+          end
+          FASTFILE
+
+          # 写 Appfile
+          cat > fastlane/Appfile << APPFILE
+          app_identifier("$BUNDLE_ID")
+          apple_id("$APPLE_ID")
+          team_id("$APPLE_TEAM_ID")
+          APPFILE
+
+      # ── 5. 执行签名 ──────────────────────────────────────────────────────────
+      - name: Sign IPA with Fastlane
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DEVICE_UDID: ${{ inputs.device_udid || secrets.IOS_DEVICE_UDID }}
+          FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          BUNDLE_ID: ${{ env.BUNDLE_ID }}
+          VERSION: ${{ env.VERSION }}
+          # 跳过 Fastlane 崩溃上报
+          FASTLANE_OPT_OUT_USAGE: "YES"
+          FASTLANE_SKIP_UPDATE_CHECK: "YES"
+        run: |
+          mkdir -p dist build/profiles
+          fastlane sign_adhoc 2>&1 | tee build/fastlane.log
+
+      # ── 6. 生成 OTA 安装清单 (manifest.plist) ───────────────────────────────
+      - name: Generate OTA manifest.plist
+        env:
+          REPO: ${{ github.repository }}
+          VERSION: ${{ env.VERSION }}
+        run: |
+          # 计算 IPA 大小
+          IPA_PATH="dist/HandyCode-${VERSION}-signed.ipa"
+          IPA_SIZE=$(stat -f%z "$IPA_PATH" 2>/dev/null || stat -c%s "$IPA_PATH")
+          SHA256=$(shasum -a 256 "$IPA_PATH" | cut -d' ' -f1)
+
+          # OTA URL（指向 Release 资产）
+          IPA_URL="https://github.com/${REPO}/releases/download/ios-signed-latest/HandyCode-${VERSION}-signed.ipa"
+
+          cat > dist/manifest.plist << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>items</key>
+            <array>
+              <dict>
+                <key>assets</key>
+                <array>
+                  <dict>
+                    <key>kind</key>
+                    <string>software-package</string>
+                    <key>url</key>
+                    <string>${IPA_URL}</string>
+                  </dict>
+                </array>
+                <key>metadata</key>
+                <dict>
+                  <key>bundle-identifier</key>
+                  <string>com.fairycrane.handycode</string>
+                  <key>bundle-version</key>
+                  <string>${VERSION}</string>
+                  <key>kind</key>
+                  <string>software</string>
+                  <key>title</key>
+                  <string>HandyCode</string>
+                </dict>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          PLIST
+
+          # 写签名信息
+          echo "version=${VERSION}" >> dist/sign-info.txt
+          echo "sha256=${SHA256}" >> dist/sign-info.txt
+          echo "size=${IPA_SIZE}" >> dist/sign-info.txt
+          echo "signed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> dist/sign-info.txt
+          echo "runner=$(sw_vers -productVersion)" >> dist/sign-info.txt
+
+          cat dist/sign-info.txt
+
+      # ── 7. 发布到 GitHub Release (滚动 latest 标签) ─────────────────────────
+      - name: Publish signed IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-signed-latest
+          name: "HandyCode iOS ${{ env.VERSION }} (Auto-Signed)"
+          body: |
+            ## HandyCode iOS 自动签名版
+
+            **版本:** ${{ env.VERSION }}
+            **签名时间:** ${{ github.run_started_at }}
+            **有效期:** 7天（下次自动续签在6天后）
+
+            ### 安装方式
+
+            #### 方式一：OTA 扫码安装（推荐）
+            > 在 iPhone Safari 中打开安装页：
+            > `https://github.com/${{ github.repository }}/releases/download/ios-signed-latest/install.html`
+
+            #### 方式二：AltStore 手动导入
+            1. 下载 `HandyCode-${{ env.VERSION }}-signed.ipa`
+            2. AltStore → `+` → 选择 IPA
+
+            #### 方式三：Sideloadly
+            拖入 IPA → 点击安装
+
+            > ⚠️ 本 IPA 使用免费 Apple ID 签名，有效期7天。
+            > AltServer 保持后台运行可自动续签，或等待本 workflow 每6天发布新签名版。
+          files: |
+            dist/HandyCode-${{ env.VERSION }}-signed.ipa
+            dist/manifest.plist
+            dist/sign-info.txt
+          prerelease: false
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 8. 上传构建产物（备用）──────────────────────────────────────────────
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: handycode-ios-signed-${{ github.run_number }}
+          retention-days: 8
+          path: |
+            dist/HandyCode-${{ env.VERSION }}-signed.ipa
+            dist/manifest.plist
+            dist/sign-info.txt
+            build/fastlane.log

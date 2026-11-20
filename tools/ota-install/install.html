@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>HandyCode iOS 安装</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    background: #f2f2f7;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: white;
+    border-radius: 20px;
+    padding: 32px 24px;
+    max-width: 360px;
+    width: 100%;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    text-align: center;
+  }
+  .icon {
+    width: 80px; height: 80px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    margin: 0 auto 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+  }
+  h1 { font-size: 22px; font-weight: 700; color: #1c1c1e; margin-bottom: 6px; }
+  .version { font-size: 13px; color: #8e8e93; margin-bottom: 24px; }
+  .install-btn {
+    display: block;
+    background: linear-gradient(135deg, #007aff, #5856d6);
+    color: white;
+    text-decoration: none;
+    border-radius: 14px;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    transition: opacity 0.2s;
+  }
+  .install-btn:active { opacity: 0.8; }
+  .note {
+    font-size: 12px;
+    color: #8e8e93;
+    line-height: 1.6;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #f2f2f7;
+  }
+  .badge {
+    display: inline-block;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+  .steps {
+    text-align: left;
+    background: #f9f9fb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-top: 16px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: #3c3c43;
+    line-height: 1.4;
+  }
+  .step:last-child { margin-bottom: 0; }
+  .step-num {
+    background: #007aff;
+    color: white;
+    border-radius: 50%;
+    width: 20px; height: 20px;
+    min-width: 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    margin-right: 10px; margin-top: 1px;
+  }
+  #status { margin-top: 12px; font-size: 13px; color: #ff9500; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">📦</div>
+  <h1>HandyCode</h1>
+  <div class="version" id="ver-text">加载中…</div>
+  <span class="badge">✓ 免费签名 · 自动续期</span>
+
+  <a id="install-btn" class="install-btn" href="#" onclick="startInstall(event)">
+    📲 点击安装到 iPhone
+  </a>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div>点击上方按钮，Safari 会弹出"是否安装？"确认框</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div>安装后进入 <b>设置 → 通用 → VPN与设备管理</b>，信任开发者</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div>保持 PC 上 AltServer 在同一局域网运行，每7天自动续签</div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div class="note">
+    本安装包每6天自动重新签名发布<br>
+    需使用 <b>iPhone Safari</b> 打开本页面才能触发安装<br>
+    Chrome / 微信内置浏览器不支持 OTA 安装
+  </div>
+</div>
+
+<script>
+  // 从 URL 参数或默认 GitHub Release 读取 manifest 地址
+  const REPO = "xianhe51920/handycode";
+  const TAG  = "ios-signed-latest";
+  const BASE = `https://github.com/${REPO}/releases/download/${TAG}`;
+  const MANIFEST_URL = `${BASE}/manifest.plist`;
+  const SIGN_INFO_URL = `${BASE}/sign-info.txt`;
+
+  async function loadSignInfo() {
+    try {
+      const r = await fetch(SIGN_INFO_URL, { cache: "no-cache" });
+      if (!r.ok) throw new Error("not found");
+      const text = await r.text();
+      const info = {};
+      text.split("\n").forEach(line => {
+        const [k, ...v] = line.split("=");
+        if (k) info[k.trim()] = v.join("=").trim();
+      });
+
+      const signedAt = info.signed_at ? new Date(info.signed_at) : null;
+      const expireAt = signedAt ? new Date(signedAt.getTime() + 7 * 86400000) : null;
+      const now = new Date();
+      const daysLeft = expireAt ? Math.ceil((expireAt - now) / 86400000) : null;
+
+      let verText = `版本 ${info.version || "0.8.4"}`;
+      if (daysLeft !== null) {
+        const color = daysLeft <= 1 ? "#ff3b30" : daysLeft <= 2 ? "#ff9500" : "#34c759";
+        verText += ` &nbsp;·&nbsp; <span style="color:${color}">剩余有效期 ${daysLeft} 天</span>`;
+      }
+      document.getElementById("ver-text").innerHTML = verText;
+    } catch {
+      document.getElementById("ver-text").textContent = "版本 0.8.4";
+    }
+  }
+
+  function startInstall(e) {
+    e.preventDefault();
+    // 检测是否 Safari（OTA 只支持 Safari）
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (!isIOS) {
+      document.getElementById("status").textContent = "⚠️ 请用 iPhone / iPad 的 Safari 打开此页面";
+      return;
+    }
+    if (!isSafari) {
+      document.getElementById("status").textContent = "⚠️ 请用 Safari 打开（微信/Chrome 不支持 OTA 安装）";
+      return;
+    }
+    // 触发 OTA 安装
+    window.location.href = `itms-services://?action=download-manifest&url=${encodeURIComponent(MANIFEST_URL)}`;
+    document.getElementById("status").textContent = "正在唤起安装，请在弹窗中点击「安装」…";
+  }
+
+  loadSignInfo();
+</script>
+</body>
+</html>
