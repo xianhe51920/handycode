@@ -168,6 +168,15 @@ final class HandyCodeTests: XCTestCase {
         XCTAssertGreaterThan(jd.subviews.count, 0)
     }
 
+    func testSceneDelegateConfigurationResolvesDelegateClass() {
+        let scenes = Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
+        let configs = scenes?["UISceneConfigurations"] as? [String: Any]
+        let appConfigs = configs?["UIWindowSceneSessionRoleApplication"] as? [[String: Any]]
+        let className = appConfigs?.first?["UISceneDelegateClassName"] as? String
+        XCTAssertNotNil(className)
+        XCTAssertNotNil(NSClassFromString(className ?? ""))
+    }
+
     func testMainViewControllerInstantiatesAllFourPages() {
         let prevTab = UserDefaults.standard.string(forKey: "last_tab")
         defer {
