@@ -117,11 +117,12 @@ jobs:
             dist/HandyCode-${{ env.VERSION }}-trollstore.ipa.sha256
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Job 2: AltStore IPA — 真实 Apple ID 签名，7天自动续签
+  # Job 2: AltStore IPA — 真实 Apple ID 签名，7天自动续签（需配置 Secrets）
   # ════════════════════════════════════════════════════════════════════════════
   build-altstore:
     name: "Build AltStore IPA (real signature, 7-day auto-renew)"
     runs-on: macos-15-intel
+    if: "${{ secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' }}"
     timeout-minutes: 40
 
     steps:
@@ -258,6 +259,7 @@ jobs:
     name: "Publish to GitHub Release (ios-signed-latest)"
     runs-on: ubuntu-latest
     needs: [build-trollstore, build-altstore]
+    if: always() && needs.build-trollstore.result == 'success'
     timeout-minutes: 10
 
     steps:
@@ -265,13 +267,22 @@ jobs:
 
       - name: Download all IPA artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: release-assets
 
       - name: Collect release files
         run: |
           mkdir -p dist
-          find release-assets -type f | xargs -I{} cp {} dist/
+          if [ -d release-assets ]; then
+            find release-assets -type f -exec cp {} dist/ \; || true
+          fi
+          if [ ! -f dist/sign-info.txt ]; then
+            cat > dist/sign-info.txt << INFO
+          version=${{ env.VERSION }}
+          signed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          INFO
+          fi
           ls -lh dist/
 
       - name: Publish to GitHub Release (rolling tag)
@@ -293,13 +304,9 @@ jobs:
             ---
             签名时间: ${{ github.run_started_at }}
             下次自动发布: 6天后
+          fail_on_unmatched_files: false
           files: |
-            dist/HandyCode-${{ env.VERSION }}-trollstore.ipa
-            dist/HandyCode-${{ env.VERSION }}-trollstore.ipa.sha256
-            dist/HandyCode-${{ env.VERSION }}-altstore.ipa
-            dist/HandyCode-${{ env.VERSION }}-altstore.ipa.sha256
-            dist/manifest.plist
-            dist/sign-info.txt
+            dist/*
             tools/ota-install/index.html
             tools/ota-install/install.html
           make_latest: false
