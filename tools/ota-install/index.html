@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>HandyCode — iOS 安装</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --blue:#007aff;--green:#34c759;--orange:#ff9500;--red:#ff3b30;
+  --purple:#5856d6;--bg:#f2f2f7;--card:#fff;--text:#1c1c1e;--sub:#8e8e93;
+  --border:#e5e5ea;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;}
+
+/* ── Header ── */
+.hero{background:linear-gradient(160deg,#1a1a2e 0%,#16213e 60%,#0f3460 100%);
+  padding:48px 24px 36px;text-align:center;color:#fff;}
+.app-icon{width:88px;height:88px;border-radius:22px;margin:0 auto 16px;
+  background:linear-gradient(135deg,#667eea,#764ba2);
+  display:flex;align-items:center;justify-content:center;font-size:44px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.4);}
+.app-name{font-size:28px;font-weight:700;letter-spacing:-0.5px}
+.app-sub{font-size:14px;opacity:.6;margin-top:4px}
+
+/* ── Main card ── */
+.wrap{max-width:460px;margin:0 auto;padding:20px 16px 48px}
+.card{background:var(--card);border-radius:18px;overflow:hidden;
+  box-shadow:0 2px 16px rgba(0,0,0,0.07);margin-bottom:16px}
+.card-header{padding:16px 20px 12px;border-bottom:1px solid var(--border)}
+.card-header h2{font-size:15px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.5px}
+.card-body{padding:4px 0}
+
+/* ── Method rows ── */
+.method{display:flex;align-items:center;padding:14px 20px;cursor:pointer;
+  transition:background .15s;border-bottom:1px solid var(--border);text-decoration:none;color:inherit}
+.method:last-child{border-bottom:none}
+.method:active{background:#f9f9fb}
+.method-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;font-size:22px;margin-right:14px;flex-shrink:0}
+.method-text{flex:1;min-width:0}
+.method-title{font-size:16px;font-weight:600;margin-bottom:2px}
+.method-desc{font-size:13px;color:var(--sub);line-height:1.4}
+.method-arrow{color:var(--border);font-size:18px;margin-left:8px}
+.badge{display:inline-block;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600;
+  vertical-align:middle;margin-left:6px}
+.badge-green{background:#e8f5e9;color:#2e7d32}
+.badge-blue{background:#e3f2fd;color:#1565c0}
+.badge-orange{background:#fff3e0;color:#e65100}
+
+/* ── Version selector ── */
+#version-picker{display:none}
+.section-label{font-size:13px;color:var(--sub);font-weight:600;padding:16px 20px 8px;
+  text-transform:uppercase;letter-spacing:.4px}
+.ver-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 16px 16px}
+.ver-btn{background:var(--card);border:2px solid var(--border);border-radius:14px;
+  padding:14px 10px;text-align:center;cursor:pointer;transition:all .2s;
+  font-size:14px;font-weight:600;color:var(--text)}
+.ver-btn:active,.ver-btn.selected{border-color:var(--blue);background:#f0f6ff;color:var(--blue)}
+.ver-btn .sub{font-size:11px;font-weight:400;color:var(--sub);margin-top:2px}
+
+/* ── Steps panel ── */
+#steps-panel{display:none;margin-top:4px}
+.step-card{background:var(--card);border-radius:18px;padding:20px;margin-bottom:12px;
+  box-shadow:0 2px 12px rgba(0,0,0,0.06)}
+.step-card h3{font-size:17px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.step-item{display:flex;gap:12px;margin-bottom:12px}
+.step-item:last-child{margin-bottom:0}
+.step-num{width:26px;height:26px;min-width:26px;border-radius:50%;
+  background:var(--blue);color:#fff;display:flex;align-items:center;
+  justify-content:center;font-size:12px;font-weight:700;margin-top:1px}
+.step-content{font-size:14px;line-height:1.5;color:#3c3c43}
+.step-content b{color:var(--text)}
+.step-content code{background:#f2f2f7;border-radius:5px;padding:1px 5px;
+  font-family:ui-monospace,monospace;font-size:12px}
+.action-btn{display:block;background:var(--blue);color:#fff;text-decoration:none;
+  border-radius:14px;padding:15px;font-size:16px;font-weight:600;text-align:center;
+  margin-top:14px;transition:opacity .15s}
+.action-btn:active{opacity:.8}
+.action-btn.green{background:var(--green)}
+.action-btn.purple{background:var(--purple)}
+.warn-box{background:#fff8e1;border-radius:10px;padding:12px 14px;
+  font-size:13px;color:#795548;line-height:1.5;margin-top:10px}
+.warn-box::before{content:"⚠️ ";font-style:normal}
+
+/* ── Back btn ── */
+.back-btn{display:flex;align-items:center;gap:4px;color:var(--blue);
+  font-size:16px;cursor:pointer;margin-bottom:16px;padding:4px 0;
+  background:none;border:none;font-family:inherit}
+
+/* ── Bottom note ── */
+.foot-note{text-align:center;font-size:12px;color:var(--sub);padding:8px 16px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="app-icon">📦</div>
+  <div class="app-name">HandyCode</div>
+  <div class="app-sub" id="ver-label">正在获取版本信息…</div>
+</div>
+
+<div class="wrap">
+
+  <!-- ── 主选择界面 ── -->
+  <div id="main-picker">
+    <div class="card">
+      <div class="card-header"><h2>选择安装方式</h2></div>
+      <div class="card-body">
+
+        <!-- TrollStore -->
+        <div class="method" onclick="showTrollStore()">
+          <div class="method-icon" style="background:#fce4ec">🏆</div>
+          <div class="method-text">
+            <div class="method-title">
+              TrollStore
+              <span class="badge badge-green">永久有效</span>
+            </div>
+            <div class="method-desc">iOS 14–16.6.1 / 17.0部分机型 · 安装后从不过期</div>
+          </div>
+          <div class="method-arrow">›</div>
+        </div>
+
+        <!-- AltStore -->
+        <div class="method" onclick="showAltStore()">
+          <div class="method-icon" style="background:#e3f2fd">🔄</div>
+          <div class="method-text">
+            <div class="method-title">
+              AltStore
+              <span class="badge badge-blue">自动续签</span>
+            </div>
+            <div class="method-desc">所有 iOS 版本 · 7天自动续签，PC保持开启即可</div>
+          </div>
+          <div class="method-arrow">›</div>
+        </div>
+
+        <!-- Sideloadly -->
+        <div class="method" onclick="showSideloadly()">
+          <div class="method-icon" style="background:#f3e5f5">🖥️</div>
+          <div class="method-text">
+            <div class="method-title">
+              Sideloadly
+              <span class="badge badge-orange">需要电脑</span>
+            </div>
+            <div class="method-desc">所有 iOS 版本 · 在电脑上操作，7天续签</div>
+          </div>
+          <div class="method-arrow">›</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="foot-note">
+      在 iPhone <b>Safari</b> 中打开本页面以获得最佳体验<br>
+      TrollStore 方案永久有效，推荐 iOS 16.6.1 及以下用户使用
+    </div>
+  </div>
+
+  <!-- ── TrollStore 流程 ── -->
+  <div id="trollstore-panel" style="display:none">
+    <button class="back-btn" onclick="showMain()">‹ 返回</button>
+
+    <div class="card">
+      <div class="card-header"><h2>第一步：确认你的 iOS 版本</h2></div>
+      <div class="card-body">
+        <div class="section-label">你的 iOS 是哪个版本？</div>
+        <div class="ver-grid" id="ts-ver-grid">
+          <div class="ver-btn" onclick="selectTSVer(this,'14-15')">
+            iOS 14 / 15<div class="sub">全部机型 ✓</div></div>
+          <div class="ver-btn" onclick="selectTSVer(this,'16-0-to-16-6-1')">
+            iOS 16.0–16.6.1<div class="sub">全部机型 ✓</div></div>
+          <div class="ver-btn" onclick="selectTSVer(this,'17-0-a12')">
+            iOS 17.0<div class="sub">A12及以前 ✓</div></div>
+          <div class="ver-btn" onclick="selectTSVer(this,'unsupported')">
+            其他版本<div class="sub">16.7+ / 17.1+</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="ts-steps-panel"></div>
+  </div>
+
+  <!-- ── AltStore 流程 ── -->
+  <div id="altstore-panel" style="display:none">
+    <button class="back-btn" onclick="showMain()">‹ 返回</button>
+
+    <div class="step-card">
+      <h3>🔄 AltStore 安装流程</h3>
+
+      <div class="step-item">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          在 PC（Windows/Mac）上下载安装 <b>AltServer</b><br>
+          <small style="color:var(--sub)">从 altstore.io 下载，需要 iTunes 或 Apple Devices</small>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          iPhone 用数据线连接 PC，AltServer 托盘图标 →<br>
+          <b>Install AltStore</b> → 选择你的 iPhone → 输入 Apple ID
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          iPhone 上：<b>设置 → 通用 → VPN与设备管理</b> → 信任开发者
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          在 iPhone Safari 打开下方链接，点击「安装 AltStore IPA」
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <b>保持 AltServer 在 PC 后台运行</b>，手机和 PC 在同一局域网<br>
+          → 每7天自动续签，完全无感知
+        </div>
+      </div>
+
+      <a id="altstore-ipa-btn" class="action-btn" href="#" onclick="installAltStore(event)">
+        📲 安装 HandyCode（AltStore OTA）
+      </a>
+      <a id="altstore-dl-btn" class="action-btn" style="background:#6c757d;margin-top:8px"
+         href="#" onclick="downloadAltStoreIPA(event)">
+        ⬇️ 下载 IPA 文件（手动导入 AltStore）
+      </a>
+    </div>
+
+    <div class="warn-box">
+      OTA 安装必须在 <b>Safari</b> 中打开本页面。微信/Chrome 内置浏览器不支持。
+    </div>
+  </div>
+
+  <!-- ── Sideloadly 流程 ── -->
+  <div id="sideloadly-panel" style="display:none">
+    <button class="back-btn" onclick="showMain()">‹ 返回</button>
+
+    <div class="step-card">
+      <h3>🖥️ Sideloadly 安装流程</h3>
+
+      <div class="step-item">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          在 PC 上下载 <b>Sideloadly</b>：<code>sideloadly.io</code>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          下载 IPA 文件到电脑（见下方按钮）
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          iPhone 用数据线连接电脑，打开 Sideloadly →<br>
+          将 IPA 拖入 Sideloadly → 填写 Apple ID → 点 <b>Start</b>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          iPhone：<b>设置 → 通用 → VPN与设备管理</b> → 信任
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          7天后需重新用 Sideloadly 安装一次（或配合 AltServer 自动续签）
+        </div>
+      </div>
+
+      <a id="sideloadly-dl-btn" class="action-btn" href="#" onclick="downloadAltStoreIPA(event)">
+        ⬇️ 下载 IPA 文件（用于 Sideloadly）
+      </a>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+const REPO = "xianhe51920/handycode";
+const TAG  = "ios-signed-latest";
+const BASE = `https://github.com/${REPO}/releases/download/${TAG}`;
+
+const TS_IPA_URL      = `${BASE}/HandyCode-0.8.4-trollstore.ipa`;
+const AS_IPA_URL      = `${BASE}/HandyCode-0.8.4-altstore.ipa`;
+const MANIFEST_URL    = `${BASE}/manifest.plist`;
+const SIGN_INFO_URL   = `${BASE}/sign-info.txt`;
+
+// ── 版本信息 ──────────────────────────────────────────────────────────────
+async function loadSignInfo() {
+  try {
+    const r = await fetch(SIGN_INFO_URL, { cache: "no-cache" });
+    if (!r.ok) throw new Error();
+    const info = {};
+    (await r.text()).split("\n").forEach(l => {
+      const [k, ...v] = l.split("=");
+      if (k) info[k.trim()] = v.join("=").trim();
+    });
+    const v = info.version || "0.8.4";
+    const signedAt = info.signed_at ? new Date(info.signed_at) : null;
+    const expireAt = signedAt ? new Date(signedAt.getTime() + 7*86400000) : null;
+    const daysLeft = expireAt ? Math.ceil((expireAt-new Date())/86400000) : null;
+    let label = `版本 ${v}`;
+    if (daysLeft !== null) label += `  · AltStore版剩余 ${daysLeft} 天`;
+    document.getElementById("ver-label").textContent = label;
+
+    // 更新下载链接中的版本号
+    const tsUrl = `${BASE}/HandyCode-${v}-trollstore.ipa`;
+    const asUrl = `${BASE}/HandyCode-${v}-altstore.ipa`;
+    document.getElementById("altstore-ipa-btn").dataset.asUrl = asUrl;
+    document.getElementById("altstore-dl-btn").href = asUrl;
+    document.getElementById("sideloadly-dl-btn").href = asUrl;
+  } catch {
+    document.getElementById("ver-label").textContent = "版本 0.8.4";
+  }
+}
+
+// ── 面板切换 ──────────────────────────────────────────────────────────────
+function showMain() {
+  document.getElementById("main-picker").style.display = "";
+  document.getElementById("trollstore-panel").style.display = "none";
+  document.getElementById("altstore-panel").style.display = "none";
+  document.getElementById("sideloadly-panel").style.display = "none";
+}
+function showTrollStore() {
+  document.getElementById("main-picker").style.display = "none";
+  document.getElementById("trollstore-panel").style.display = "";
+}
+function showAltStore() {
+  document.getElementById("main-picker").style.display = "none";
+  document.getElementById("altstore-panel").style.display = "";
+}
+function showSideloadly() {
+  document.getElementById("main-picker").style.display = "none";
+  document.getElementById("sideloadly-panel").style.display = "";
+}
+
+// ── TrollStore 版本选择 ───────────────────────────────────────────────────
+const TS_GUIDE = {
+  "14-15": {
+    title: "iOS 14 / 15 — TrollInstallerX",
+    color: "#34c759",
+    steps: [
+      { n:1, t: "在 Safari 打开：<code>github.com/alfiecg24/TrollInstallerX</code>，下载最新 <code>.ipa</code>" },
+      { n:2, t: "用 <b>Sideloadly 或 AltStore</b> 临时安装 TrollInstallerX（只需装这一次）" },
+      { n:3, t: "打开 TrollInstallerX → 点 <b>Install TrollStore</b> → 等待完成后重启" },
+      { n:4, t: "桌面出现 TrollStore 图标 → 打开 → 点 <b>+</b> → 选择 HandyCode TrollStore IPA → 安装" },
+      { n:5, t: "安装完成！HandyCode 永久有效，无需任何续签" }
+    ],
+    ipaBtn: true
+  },
+  "16-0-to-16-6-1": {
+    title: "iOS 16.0–16.6.1 — TrollInstallerX",
+    color: "#34c759",
+    steps: [
+      { n:1, t: "确认版本：设置 → 通用 → 关于本机 → 软件版本（需 ≤ 16.6.1）" },
+      { n:2, t: "Safari 打开：<code>github.com/alfiecg24/TrollInstallerX</code>，下载最新 IPA" },
+      { n:3, t: "用 <b>Sideloadly 或 AltStore</b> 临时安装 TrollInstallerX" },
+      { n:4, t: "打开 TrollInstallerX → <b>Install TrollStore</b> → 重启手机" },
+      { n:5, t: "TrollStore 安装好后：打开 → <b>+</b> → 选择 HandyCode TrollStore IPA" },
+      { n:6, t: "安装完成，永久有效！可以卸载 TrollInstallerX 了" }
+    ],
+    ipaBtn: true
+  },
+  "17-0-a12": {
+    title: "iOS 17.0（A12及以前）— TrollStar",
+    color: "#ff9500",
+    steps: [
+      { n:1, t: "<b>确认机型：</b> 支持 iPhone XS/XR/XS Max（A12），iPhone X 及之前（A11及更早）" },
+      { n:2, t: "Safari 打开：<code>github.com/34306/TrollStar</code>，下载 TrollStar IPA" },
+      { n:3, t: "用 <b>Sideloadly 或 AltStore</b> 临时安装 TrollStar" },
+      { n:4, t: "打开 TrollStar → <b>Install TrollStore</b>" },
+      { n:5, t: "重启手机，桌面找到 TrollStore → <b>+</b> → HandyCode TrollStore IPA" },
+      { n:6, t: "安装完成，永久有效" }
+    ],
+    ipaBtn: true
+  },
+  "unsupported": {
+    title: "iOS 16.7+ / 17.1+ — 暂不支持 TrollStore",
+    color: "#ff3b30",
+    steps: [
+      { n:"!", t: "<b>你的 iOS 版本不支持 TrollStore。</b>" },
+      { n:"→", t: "建议使用 <b>AltStore 自动续签</b> 方案，配置一次后每7天自动续，完全无感知。" },
+      { n:"→", t: "或等待 TrollStore 社区支持你的 iOS 版本（新版本漏洞发现后会更新）。" }
+    ],
+    ipaBtn: false,
+    altBtn: true
+  }
+};
+
+function selectTSVer(el, ver) {
+  document.querySelectorAll("#ts-ver-grid .ver-btn").forEach(b => b.classList.remove("selected"));
+  el.classList.add("selected");
+  renderTSSteps(ver);
+}
+
+function renderTSSteps(ver) {
+  const g = TS_GUIDE[ver];
+  const panel = document.getElementById("ts-steps-panel");
+  let html = `<div class="step-card"><h3><span style="color:${g.color}">●</span> ${g.title}</h3>`;
+  g.steps.forEach(s => {
+    html += `<div class="step-item">
+      <div class="step-num" style="background:${g.color}">${s.n}</div>
+      <div class="step-content">${s.t}</div>
+    </div>`;
+  });
+  if (g.ipaBtn) {
+    html += `<a class="action-btn green" href="${TS_IPA_URL}" download>
+      ⬇️ 下载 HandyCode TrollStore IPA</a>`;
+  }
+  if (g.altBtn) {
+    html += `<div onclick="showAltStore()" class="action-btn" style="background:#007aff;cursor:pointer;margin-top:10px">
+      🔄 改用 AltStore 自动续签方案</div>`;
+  }
+  html += `</div>`;
+  panel.innerHTML = html;
+  panel.style.display = "";
+}
+
+// ── AltStore OTA 安装 ─────────────────────────────────────────────────────
+function installAltStore(e) {
+  e.preventDefault();
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (!isIOS || !isSafari) {
+    alert("请用 iPhone 的 Safari 打开此页面才能触发 OTA 安装");
+    return;
+  }
+  window.location.href = `itms-services://?action=download-manifest&url=${encodeURIComponent(MANIFEST_URL)}`;
+}
+function downloadAltStoreIPA(e) {
+  e.preventDefault();
+  const url = document.getElementById("altstore-dl-btn").href || AS_IPA_URL;
+  window.location.href = url;
+}
+
+loadSignInfo();
+showMain();
+</script>
+</body>
+</html>
