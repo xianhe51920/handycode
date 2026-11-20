@@ -38,4 +38,14 @@ f.api.watch(f.doc);assert.deepEqual(phases,['__HANDYCODE_PHASE__:identity-loadin
 observers[0].callback();observers[0].callback();assert.equal(jobs.length,1,'Batch repeated DOM changes into one presentation notification');jobs.shift()();assert.equal(phases.length,1,'Do not reopen the same loading state repeatedly');
 f.authenticated();observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:ready');
 f.doc.getElementById=()=>({});observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:merged');assert.equal(observers[0].disconnected,true,'Stop observing presentation after the merged page is installed');
+for(const verifyUrl of ['https://aq.taobao.com/durex/validate','https://sec.taobao.com/query.htm','https://h5api.m.taobao.com/h5/_____tmd_____/punish','https://login.m.taobao.com/verify']){
+ f=fixture({frameUrl:verifyUrl});
+ assert.equal(f.api.phase(f.doc),'login',`Verification/auth iframe ${verifyUrl} must trigger login/verify presentation`);
+ assert.equal(f.api.recover(f.doc,2000),'login');
+ assert.equal(f.clicks(),0,'Verification/auth iframe must pause recovery refreshes');
+}
+f=fixture({buttonPresent:false});
+f.doc.location={hostname:'login.m.taobao.com',pathname:'/login.htm'};
+assert.equal(f.api.phase(f.doc),'login','Top-level auth host without inputs must still report login phase');
+assert.equal(f.api.ready(f.doc),false,'Top-level auth host cannot pass merge readiness gate');
 console.log('PASS: official empty-code recovery, phone/OTP guards, cooldown, bounded attempts and completion cases');

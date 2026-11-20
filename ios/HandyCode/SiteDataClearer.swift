@@ -5,6 +5,20 @@ final class SiteDataClearer {
     static let shared = SiteDataClearer()
     private(set) var isBusy = false
 
+    func clearHttpCache(completion: (() -> Void)? = nil) {
+        let store = WKWebsiteDataStore.default()
+        let cacheTypes: Set<String> = [
+            WKWebsiteDataTypeDiskCache,
+            WKWebsiteDataTypeMemoryCache,
+            WKWebsiteDataTypeFetchCache
+        ]
+        store.removeData(ofTypes: cacheTypes, modifiedSince: Date(timeIntervalSince1970: 0)) {
+            DispatchQueue.main.async {
+                completion?()
+            }
+        }
+    }
+
     func clear(page: Int, completion: @escaping () -> Void) {
         let domains = LogoutSites.domains(for: page)
         guard !domains.isEmpty else {

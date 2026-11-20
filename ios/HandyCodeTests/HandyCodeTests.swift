@@ -29,6 +29,35 @@ final class HandyCodeTests: XCTestCase {
             mainFrame: true,
             gesture: true
         ))
+
+        XCTAssertTrue(UrlPolicy.isTaobaoIdentityEntry(UrlPolicy.taobaoEntry))
+        XCTAssertTrue(UrlPolicy.isTaobaoIdentityEntry(UrlPolicy.taobaoEntry + "/"))
+        XCTAssertTrue(UrlPolicy.isTaobaoIdentityEntry(UrlPolicy.taobaoEntry + "?spm=test"))
+        XCTAssertTrue(UrlPolicy.isTaobaoIdentityEntry(
+            UrlPolicy.taobaoEntry.replacingOccurrences(of: "pages-fast.m.taobao.com", with: "pages.m.taobao.com")
+        ))
+        XCTAssertFalse(UrlPolicy.isTaobaoIdentityEntry(UrlPolicy.taobaoParcelsEntry))
+        XCTAssertFalse(UrlPolicy.isTaobaoIdentityEntry("https://login.m.taobao.com/login.htm"))
+        XCTAssertFalse(UrlPolicy.isTaobaoIdentityEntry("https://pages-fast.m.taobao.com.evil.invalid/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/identity-code"))
+
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://login.m.taobao.com/login.htm"))
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://passport.taobao.com/ac/password_find.htm"))
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://login.tmall.com/"))
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://aq.taobao.com/durex/validate"))
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://sec.taobao.com/query.htm"))
+        XCTAssertTrue(UrlPolicy.isTaobaoAuthUrl("https://h5api.m.taobao.com/h5/mtop.test/1.0/_____tmd_____/punish"))
+        XCTAssertFalse(UrlPolicy.isTaobaoAuthUrl(UrlPolicy.taobaoEntry))
+        XCTAssertFalse(UrlPolicy.isTaobaoAuthUrl(UrlPolicy.taobaoParcelsEntry))
+        XCTAssertFalse(UrlPolicy.isTaobaoAuthUrl("https://login.taobao.com.evil.invalid/"))
+    }
+
+    func testSiteDataClearerClearsHttpCacheWithoutError() {
+        let exp = expectation(description: "clearHttpCache finishes on main queue")
+        SiteDataClearer.shared.clearHttpCache {
+            XCTAssertTrue(Thread.isMainThread)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 10.0)
     }
 
     func testJdUrlPolicyAndImageAllowlist() {

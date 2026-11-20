@@ -65,6 +65,30 @@ enum UrlPolicy {
         return matches(components.path, pattern: "^.*/login(?:[./].*)?$")
     }
 
+    static func isTaobaoIdentityEntry(_ raw: String?) -> Bool {
+        guard isAllowed(raw),
+              let actual = httpsComponents(raw),
+              let expected = httpsComponents(taobaoEntry),
+              let host = actual.host?.lowercased() else { return false }
+        guard host == "pages-fast.m.taobao.com" || host == "pages.m.taobao.com" else { return false }
+        var path = actual.path
+        if path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path == expected.path
+    }
+
+    static func isTaobaoAuthUrl(_ raw: String?) -> Bool {
+        guard isAllowed(raw),
+              let components = httpsComponents(raw),
+              let host = components.host?.lowercased() else { return false }
+        if host.hasPrefix("login.") || host.hasPrefix("passport.")
+            || host.hasPrefix("aq.") || host.hasPrefix("sec.") {
+            return true
+        }
+        return matches(components.path.lowercased(), pattern: "(?:^|/)(?:login|punish|verify|baxia)(?:[./_-]|$)")
+    }
+
     static func httpsComponents(_ raw: String?) -> URLComponents? {
         guard let raw, !raw.isEmpty, raw.count <= 8192 else { return nil }
         for scalar in raw.unicodeScalars {

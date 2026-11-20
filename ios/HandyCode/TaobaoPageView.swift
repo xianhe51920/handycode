@@ -8,6 +8,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private let errorDetail = UILabel()
     private let openIdentityButton = UIButton(type: .system)
     private let retryButton = UIButton(type: .system)
+    private let resetSiteButton = UIButton(type: .system)
     private let inlineBackBar = UIView()
     private let inlineBackButton = UIButton(type: .system)
 
@@ -17,9 +18,12 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private var active = false
     private var combinedDisplayed = false
     private var loginVisible = false
+    private var loginThemeReady = false
+    private var needsFreshLoad = false
     private var failed = false
     private var generation = 0
     private var pollTimer: Timer?
+    private var loginRevealFallback: DispatchWorkItem?
     private var deadline: TimeInterval = 0
 
     private var combinedMarkup = ""
@@ -32,6 +36,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
 
     var onSessionChanged: ((Bool) -> Void)?
     var onRequestLogout: (() -> Void)?
+    var onRequestResetSite: (() -> Void)?
     var onOpenTaobaoApp: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -40,6 +45,13 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     }
 
     required init?(coder: NSCoder) { nil }
+
+    deinit {
+        loginRevealFallback?.cancel()
+        pollTimer?.invalidate()
+        web?.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
+        inlineWeb?.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
+    }
 
     private func setup() {
         officialIdentityScript = WebAssets.readText("official-identity.js") ?? ""
@@ -90,6 +102,13 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         retryButton.setTitleColor(.white, for: .normal)
         retryButton.addTarget(self, action: #selector(reloadTaobao), for: .touchUpInside)
         errorPanel.addSubview(retryButton)
+
+        resetSiteButton.setTitle("清除淘宝缓存并重新登录", for: .normal)
+        resetSiteButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        resetSiteButton.layer.cornerRadius = 10
+        resetSiteButton.layer.borderWidth = 1
+        resetSiteButton.addTarget(self, action: #selector(handleResetSite), for: .touchUpInside)
+        errorPanel.addSubview(resetSiteButton)
         addSubview(errorPanel)
 
         inlineBackBar.isHidden = true
@@ -121,6 +140,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         openIdentityButton.setTitleColor(AppTheme.ink(dark), for: .normal)
         openIdentityButton.layer.borderColor = AppTheme.border(dark).cgColor
         retryButton.backgroundColor = AppTheme.accent
+        resetSiteButton.setTitleColor(AppTheme.ink(dark), for: .normal)
+        resetSiteButton.layer.borderColor = AppTheme.border(dark).cgColor
         inlineBackBar.backgroundColor = AppTheme.surface(dark)
         inlineBackButton.setTitleColor(AppTheme.accentText(dark), for: .normal)
 
@@ -141,6 +162,10 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         }
     }
 
+    func markUpgradeFreshLoad() {
+        needsFreshLoad = true
+    }
+
     func showPage() {
         active = true
         if combinedMarkup.isEmpty {
@@ -158,6 +183,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         active = false
         pollTimer?.invalidate()
         pollTimer = nil
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
         cover.setAnimating(false)
     }
 
@@ -167,6 +194,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         generation += 1
         combinedDisplayed = false
         loginVisible = false
+        loginThemeReady = false
         failed = false
         if let web {
             web.stopLoading()
@@ -216,6 +244,12 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         return false
     }
 
+    private func makeEntryRequest() -> URLRequest? {
+        guard let url = URL(string: UrlPolicy.taobaoEntry) else { return nil }
+        let policy: URLRequest.CachePolicy = needsFreshLoad ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+        return URLRequest(url: url, cachePolicy: policy, timeoutInterval: 30)
+    }
+
     private func createWeb() {
         var scripts: [String] = []
         if !taobaoLoginThemeScript.isEmpty {
@@ -230,8 +264,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         insertSubview(web, at: 0)
         self.web = web
         beginLoading()
-        if let url = URL(string: UrlPolicy.taobaoEntry) {
-            web.load(URLRequest(url: url))
+        if let request = makeEntryRequest() {
+            web.load(request)
         }
     }
 
@@ -239,7 +273,10 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         failed = false
         combinedDisplayed = false
         loginVisible = false
-        deadline = CACurrentMediaTime() + 20
+        loginThemeReady = false
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
+        deadline = CACurrentMediaTime() + 30
         errorPanel.isHidden = true
         cover.isHidden = false
         cover.setAnimating(active)
@@ -247,12 +284,37 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
 
     @objc private func reloadTaobao() {
         closeInline()
-        guard let web else { showPage(); return }
+        needsFreshLoad = true
         generation += 1
-        beginLoading()
-        if let url = URL(string: UrlPolicy.taobaoEntry) {
-            web.load(URLRequest(url: url))
+        let expectedGen = generation
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
+        if let web {
+            web.stopLoading()
+            web.navigationDelegate = nil
+            web.uiDelegate = nil
+            web.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
+            web.removeFromSuperview()
+            self.web = nil
         }
+        failed = false
+        combinedDisplayed = false
+        loginVisible = false
+        loginThemeReady = false
+        errorPanel.isHidden = true
+        cover.isHidden = false
+        cover.setAnimating(active)
+        SiteDataClearer.shared.clearHttpCache { [weak self] in
+            guard let self, self.generation == expectedGen, self.active else { return }
+            if self.web == nil {
+                self.createWeb()
+            }
+            self.startPollTimer()
+        }
+    }
+
+    @objc private func handleResetSite() {
+        onRequestResetSite?()
     }
 
     @objc private func handleOpenApp() {
@@ -275,12 +337,16 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private func showError(title: String, detail: String, showAppOption: Bool) {
         failed = true
         pollTimer?.invalidate()
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
         cover.isHidden = true
         cover.setAnimating(false)
         errorTitle.text = title
         errorDetail.text = detail
         openIdentityButton.isHidden = !showAppOption
+        resetSiteButton.isHidden = combinedMarkup.isEmpty
         errorPanel.isHidden = false
+        setNeedsLayout()
     }
 
     private func startPollTimer() {
@@ -293,30 +359,74 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private func checkState() {
         guard active, let web, !failed, !combinedDisplayed else { return }
         if !loginVisible && CACurrentMediaTime() > deadline {
-            showError(title: "淘宝身份码加载超时", detail: "请检查网络后重试，或在淘宝 App 中确认已开通身份码。", showAppOption: true)
+            showError(
+                title: "淘宝取件信息暂未加载完成",
+                detail: "官方网页暂未准备就绪，请检查网络后点“重新打开网页”重试；若持续超时可清除淘宝缓存重新登录。",
+                showAppOption: true
+            )
             return
         }
         let currentURL = web.url?.absoluteString
-        guard sameIdentityPage(currentURL) else { return }
+        if UrlPolicy.isTaobaoAuthUrl(currentURL) {
+            handleLoginDetected()
+            return
+        }
+        guard sameIdentityPage(currentURL), !officialIdentityScript.isEmpty else { return }
         let expectedGen = generation
-        let probe = officialIdentityScript + "\n" + combinedGateScript
+        let probe = officialIdentityScript + "\n(function(){HandyCodeOfficialIdentity.watch(document);if(HandyCodeOfficialIdentity.ready(document))return 'ready';return HandyCodeOfficialIdentity.recover(document,Date.now());})()"
         web.evaluateJavaScript(probe) { [weak self] result, _ in
             guard let self, self.generation == expectedGen, !self.combinedDisplayed else { return }
-            if (result as? Bool) == true {
+            let status = result as? String
+            if status == "ready" {
                 self.applyCombined(web: web, expectedGen: expectedGen)
+            } else if status == "login" {
+                self.handleLoginDetected()
             } else {
-                self.applyLoginHelpers(web)
+                self.installObserverAndTheme(web)
             }
         }
     }
 
-    private func applyLoginHelpers(_ view: WKWebView) {
+    private func installObserverAndTheme(_ view: WKWebView) {
         if !taobaoLoginChromeScript.isEmpty {
             view.evaluateJavaScript(taobaoLoginChromeScript, completionHandler: nil)
+        }
+        if !officialIdentityScript.isEmpty {
+            view.evaluateJavaScript(officialIdentityScript + "\nHandyCodeOfficialIdentity.watch(document);", completionHandler: nil)
         }
         if !taobaoLoginThemeScript.isEmpty {
             view.evaluateJavaScript("window.__HC_TAOBAO_DARK__=\(dark ? "true" : "false");\n" + taobaoLoginThemeScript, completionHandler: nil)
         }
+    }
+
+    private func handleLoginDetected() {
+        guard !failed && !combinedDisplayed else { return }
+        if !loginVisible {
+            loginVisible = true
+            onSessionChanged?(false)
+            loginRevealFallback?.cancel()
+            let fallback = DispatchWorkItem { [weak self] in
+                guard let self, self.loginVisible, !self.failed, !self.combinedDisplayed else { return }
+                self.commitRevealLogin()
+            }
+            loginRevealFallback = fallback
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: fallback)
+        }
+        if loginThemeReady || taobaoLoginThemeScript.isEmpty {
+            commitRevealLogin()
+        }
+    }
+
+    private func commitRevealLogin() {
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
+        guard !failed && !combinedDisplayed else { return }
+        if let web, !taobaoLoginChromeScript.isEmpty {
+            web.evaluateJavaScript(taobaoLoginChromeScript, completionHandler: nil)
+        }
+        cover.isHidden = true
+        cover.setAnimating(false)
+        errorPanel.isHidden = true
     }
 
     private func applyCombined(web: WKWebView, expectedGen: Int) {
@@ -340,6 +450,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         web.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self, self.generation == expectedGen else { return }
             if (result as? Bool) == true {
+                self.loginRevealFallback?.cancel()
+                self.loginRevealFallback = nil
                 self.combinedDisplayed = true
                 self.loginVisible = false
                 self.cover.isHidden = true
@@ -351,11 +463,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     }
 
     private func sameIdentityPage(_ raw: String?) -> Bool {
-        guard UrlPolicy.isAllowed(raw),
-              let actual = UrlPolicy.httpsComponents(raw),
-              let expected = UrlPolicy.httpsComponents(UrlPolicy.taobaoEntry) else { return false }
-        return actual.host?.caseInsensitiveCompare(expected.host ?? "") == .orderedSame
-            && actual.path == expected.path
+        UrlPolicy.isTaobaoIdentityEntry(raw)
     }
 
     func webView(_ webView: WKWebView,
@@ -422,36 +530,60 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         }
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if webView == web, !failed {
+            installObserverAndTheme(webView)
+            if UrlPolicy.isTaobaoAuthUrl(webView.url?.absoluteString) {
+                handleLoginDetected()
+            } else {
+                checkState()
+            }
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if webView == inlineWeb, !phoneThemeScript.isEmpty {
             webView.evaluateJavaScript(phoneThemeScript + "\nHandyCodePhoneTheme.setDark(\(dark ? "true" : "false"));", completionHandler: nil)
             return
         }
         if webView == web {
-            applyLoginHelpers(webView)
-            checkState()
+            if needsFreshLoad {
+                needsFreshLoad = false
+            }
+            installObserverAndTheme(webView)
+            if !failed && UrlPolicy.isTaobaoAuthUrl(webView.url?.absoluteString) {
+                handleLoginDetected()
+            } else {
+                checkState()
+            }
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         if webView == web && !combinedDisplayed {
-            showError(title: "无法打开淘宝页面", detail: "请检查网络后重试。", showAppOption: true)
+            showError(title: "无法打开淘宝页面", detail: "请检查网络后重试；若覆盖安装后持续异常，可清除淘宝缓存重新登录。", showAppOption: true)
         }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         if webView == web && !combinedDisplayed {
-            showError(title: "无法打开淘宝页面", detail: "请检查网络后重试。", showAppOption: true)
+            showError(title: "无法打开淘宝页面", detail: "请检查网络后重试；若覆盖安装后持续异常，可清除淘宝缓存重新登录。", showAppOption: true)
         }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let value = message.body as? String else { return }
-        if value == "__HANDYCODE_TAOBAO_LOGIN_READY__" || value == "__HANDYCODE_PHASE__:login" {
-            loginVisible = true
-            cover.isHidden = true
-            cover.setAnimating(false)
-            onSessionChanged?(false)
+        if value == "__HANDYCODE_TAOBAO_LOGIN__:ready" {
+            loginThemeReady = true
+            if !combinedDisplayed && !failed {
+                loginVisible = true
+                onSessionChanged?(false)
+                commitRevealLogin()
+            }
+        } else if value == "__HANDYCODE_PHASE__:login" {
+            handleLoginDetected()
         } else if value == "__HANDYCODE_PHASE__:ready" || value == "__HANDYCODE_PHASE__:merged" {
             onSessionChanged?(true)
             checkState()
@@ -463,10 +595,12 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         web?.frame = bounds
         cover.frame = bounds
         errorPanel.frame = bounds
-        errorTitle.frame = CGRect(x: 24, y: bounds.midY - 90, width: bounds.width - 48, height: 24)
-        errorDetail.frame = CGRect(x: 24, y: errorTitle.frame.maxY + 12, width: bounds.width - 48, height: 48)
-        openIdentityButton.frame = CGRect(x: 28, y: errorDetail.frame.maxY + 18, width: bounds.width - 56, height: 46)
-        retryButton.frame = CGRect(x: 28, y: openIdentityButton.isHidden ? errorDetail.frame.maxY + 18 : openIdentityButton.frame.maxY + 10, width: bounds.width - 56, height: 46)
+        errorTitle.frame = CGRect(x: 24, y: bounds.midY - 125, width: bounds.width - 48, height: 24)
+        errorDetail.frame = CGRect(x: 24, y: errorTitle.frame.maxY + 10, width: bounds.width - 48, height: 54)
+        openIdentityButton.frame = CGRect(x: 28, y: errorDetail.frame.maxY + 16, width: bounds.width - 56, height: 46)
+        let retryY = openIdentityButton.isHidden ? errorDetail.frame.maxY + 16 : openIdentityButton.frame.maxY + 10
+        retryButton.frame = CGRect(x: 28, y: retryY, width: bounds.width - 56, height: 46)
+        resetSiteButton.frame = CGRect(x: 28, y: retryButton.frame.maxY + 10, width: bounds.width - 56, height: 46)
 
         if !inlineBackBar.isHidden {
             inlineBackBar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 40)

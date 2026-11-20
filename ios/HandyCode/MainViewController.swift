@@ -5,6 +5,7 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     private static let tabKeys = ["cainiao", "taobao", "pinduoduo", "jd"]
     private static let keyThemeMode = "theme_mode"
     private static let keyLastTab = "last_tab"
+    private static let keyAppBuildStamp = "app_build_stamp"
 
     private let header = UIView()
     private let titleViewport = UIView()
@@ -61,9 +62,12 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
 
     private func loadInitialPreferences() {
         let defaults = UserDefaults.standard
-        if ProcessInfo.processInfo.arguments.contains("-ui_test_reset") {
+        let reset = ProcessInfo.processInfo.arguments.contains("-ui_test_reset")
+        if reset {
             defaults.removeObject(forKey: Self.keyThemeMode)
             defaults.removeObject(forKey: Self.keyLastTab)
+        } else {
+            detectAppUpgrade(defaults)
         }
         let storedTheme = defaults.integer(forKey: Self.keyThemeMode)
         if storedTheme == AppThemeMode.dark.rawValue {
@@ -80,6 +84,24 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
             selected = 1
         }
         switchMotion = SwitchMotion(initial: selected, pageCount: pages.count)
+    }
+
+    private func detectAppUpgrade(_ defaults: UserDefaults) {
+        let info = Bundle.main.infoDictionary
+        let shortVer = (info?["CFBundleShortVersionString"] as? String) ?? ""
+        let buildVer = (info?["CFBundleVersion"] as? String) ?? ""
+        var mtime = 0
+        if let execPath = Bundle.main.executablePath,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: execPath),
+           let modDate = attrs[.modificationDate] as? Date {
+            mtime = Int(modDate.timeIntervalSince1970)
+        }
+        let currentStamp = "\(shortVer)-\(buildVer)-\(mtime)"
+        if let prevStamp = defaults.string(forKey: Self.keyAppBuildStamp), prevStamp != currentStamp {
+            SiteDataClearer.shared.clearHttpCache()
+            taobaoPage.markUpgradeFreshLoad()
+        }
+        defaults.set(currentStamp, forKey: Self.keyAppBuildStamp)
     }
 
     private func buildUI() {
@@ -164,6 +186,9 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         }
         taobaoPage.onRequestLogout = { [weak self] in
             self?.confirmLogout(page: 1)
+        }
+        taobaoPage.onRequestResetSite = { [weak self] in
+            self?.confirmResetTaobaoSiteData()
         }
         taobaoPage.onOpenTaobaoApp = {
             if let url = URL(string: UrlPolicy.taobaoEntry) {
@@ -310,6 +335,27 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
                     self.jdPage.resetSessionView()
                     if self.selected == 3 { self.jdPage.showPage() }
                 }
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func confirmResetTaobaoSiteData() {
+        guard !SiteDataClearer.shared.isBusy else { return }
+        let alert = UIAlertController(
+            title: "重置淘宝登录态？",
+            message: "只清除应用内淘宝和菜鸟的站点缓存与登录态，不影响拼多多和京东。清除后将自动重新加载淘宝页面。",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "清除并重试", style: .destructive) { [weak self] _ in
+            guard let self else { return }
+            self.signedIn[1] = false
+            self.taobaoPage.markUpgradeFreshLoad()
+            SiteDataClearer.shared.clear(page: 1) {
+                self.taobaoPage.resetSessionView()
+                self.cainiaoPage.setLoginRequired(true)
+                if self.selected == 1 { self.taobaoPage.showPage() }
             }
         })
         present(alert, animated: true)
