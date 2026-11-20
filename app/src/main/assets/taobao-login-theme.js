@@ -1,6 +1,6 @@
 ;(function () {
  'use strict';
- var authOrigins = ['https://login.m.taobao.com', 'https://login.taobao.com'];
+ var authOrigins = ['https://login.m.taobao.com', 'https://login.taobao.com', 'https://passport.taobao.com', 'https://login.tmall.com'];
  var hosts = ['https://pages-fast.m.taobao.com', 'https://pages.m.taobao.com'];
  var auth = authOrigins.indexOf(location.origin) !== -1;
  if (!auth && hosts.indexOf(location.origin) === -1) return;
@@ -51,8 +51,15 @@ html[data-hc-taobao-login] :is(.login-dialog-title,.login-dialog-body,.login-err
 `;
  function reportReady() {
   if (!auth || readyPending || readyReported) return;
-  var control = Array.from(document.querySelectorAll('input[type="tel"],input[type="password"],input[type="text"],.sms-container,.login-error-dialog'))
-   .some(function(n){return n.getClientRects && n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden';});
+  var control = Array.from(document.querySelectorAll(
+   'input[type="tel"],input[type="password"],input[type="text"],.sms-container,.login-error-dialog,'
+   + 'button[type="submit"]:not([disabled]),.fm-button:not([disabled]),.fm-btn:not([disabled]),'
+   + '.quick-login,.nc-container,.baxia-dialog'))
+   .some(function(n){
+    if (!n.getClientRects || !n.getClientRects().length) return false;
+    var style = getComputedStyle(n);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+   });
   if (!control || !document.getElementById('hc-taobao-login-theme')) return;
   readyPending = true;
   // Covered WebViews may suspend RAF. The native visual-state callback handles

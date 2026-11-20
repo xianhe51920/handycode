@@ -72,6 +72,32 @@ public final class UrlPolicy {
         return null;
     }
 
+    public static boolean isTaobaoIdentityEntry(String raw) {
+        URI uri = httpsUri(raw);
+        if (uri == null || !isAllowed(raw)) return false;
+        String host = uri.getHost().toLowerCase(Locale.ROOT);
+        if (!"pages-fast.m.taobao.com".equals(host) && !"pages.m.taobao.com".equals(host)) return false;
+        String path = uri.getPath();
+        if (path != null && path.endsWith("/") && path.length() > 1) {
+            path = path.substring(0, path.length() - 1);
+        }
+        URI entry = httpsUri(TAOBAO_ENTRY);
+        return entry != null && entry.getPath().equals(path);
+    }
+
+    public static boolean isTaobaoAuthUrl(String raw) {
+        URI uri = httpsUri(raw);
+        if (uri == null || !isAllowed(raw)) return false;
+        String host = uri.getHost().toLowerCase(Locale.ROOT);
+        if (host.startsWith("login.") || host.startsWith("passport.")
+                || host.startsWith("aq.") || host.startsWith("sec.")) {
+            return true;
+        }
+        String path = uri.getPath();
+        return path != null && path.toLowerCase(Locale.ROOT)
+            .matches(".*(?:^|/)(?:login|punish|verify|baxia)(?:[./_-].*)?");
+    }
+
     private static URI httpsUri(String raw) {
         if (raw == null || raw.isEmpty() || raw.length() > 8192) return null;
         for (int i = 0; i < raw.length(); i++) {

@@ -11,6 +11,7 @@ import java.util.HashSet;
 final class TaobaoLoginTheme {
     private static final java.util.Set<String> ORIGINS = new HashSet<>(Arrays.asList(
         "https://login.m.taobao.com", "https://login.taobao.com",
+        "https://passport.taobao.com", "https://login.tmall.com",
         "https://pages-fast.m.taobao.com", "https://pages.m.taobao.com"));
     private final String source;
     private ScriptHandler registration;
@@ -52,12 +53,15 @@ final class TaobaoLoginTheme {
         // AndroidX document-start scripts have an empty console source URL.
         // This signal only releases the presentation cover; it never marks the
         // user authenticated or supplies any credential / business data.
-        if (sourceId == null || sourceId.isEmpty()) {
+        if (sourceId == null || sourceId.isEmpty() || "about:blank".equals(sourceId)) {
             if (!UrlPolicy.isAllowed(view.getUrl())) return false;
         } else {
             android.net.Uri uri = android.net.Uri.parse(sourceId);
-            if (!"https".equals(uri.getScheme()) || !("login.m.taobao.com".equals(uri.getHost())
-                    || "login.taobao.com".equals(uri.getHost()))) return false;
+            String host = uri.getHost();
+            if (!"https".equals(uri.getScheme()) || !("login.m.taobao.com".equals(host)
+                    || "login.taobao.com".equals(host)
+                    || "passport.taobao.com".equals(host)
+                    || "login.tmall.com".equals(host))) return false;
         }
         TaobaoLoginTheme theme = (TaobaoLoginTheme)view.getTag(R.id.taobao_login_theme);
         if (theme != null) theme.frameReady = true;

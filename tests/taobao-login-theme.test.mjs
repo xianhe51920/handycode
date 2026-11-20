@@ -100,4 +100,22 @@ assert.deepEqual(delayedPhases,['__HANDYCODE_TAOBAO_LOGIN__:ready'],
 for(const origin of ['http://login.m.taobao.com','https://login.m.taobao.com.evil.example','https://m.pinduoduo.net']){
  assert.equal(fixture(origin).window.HandyCodeTaobaoLoginTheme,undefined);
 }
+
+// Remembered-account quick-login screens may render an enabled submit button without visible text inputs.
+f=fixture('https://login.m.taobao.com',false,true);
+f.document.querySelector('#login').innerHTML='<div class="quick-login"><button class="fm-button">一键登录</button></div>';
+const quickPhases=[];
+f.context.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});
+f.context.console={info:value=>quickPhases.push(value)};
+f.document.querySelector('.fm-button').getClientRects=()=>[{}];
+f.window.HandyCodeTaobaoLoginTheme.setDark(true);
+while(f.tasks.length)f.tasks.shift()();
+assert.deepEqual(quickPhases,['__HANDYCODE_TAOBAO_LOGIN__:ready'],
+ 'Remembered-account quick-login button without inputs must release the loading cover');
+
+// Secondary Taobao auth origin passport.taobao.com must receive the login theme.
+f=fixture('https://passport.taobao.com');
+assert.equal(f.document.documentElement.getAttribute('data-hc-taobao-login'),'dark');
+assert.ok(f.document.getElementById('hc-taobao-login-theme'));
+
 console.log('PASS: official phone/OTP theme, reversible styles, form state, frame targeting and trusted theme messages');

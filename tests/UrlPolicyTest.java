@@ -32,6 +32,39 @@ public final class UrlPolicyTest {
                 || UrlPolicy.isTaobaoAddPhonePage(UrlPolicy.TAOBAO_ENTRY)
                 || UrlPolicy.isTaobaoAddPhonePage(addPhone.replace("pages-fast.m.taobao.com", "login.taobao.com")))
             throw new AssertionError("The nested phone window must start at the official add-phone form.");
+        for (String idUrl : new String[]{
+                UrlPolicy.TAOBAO_ENTRY,
+                UrlPolicy.TAOBAO_ENTRY + "/",
+                UrlPolicy.TAOBAO_ENTRY + "?spm=test",
+                UrlPolicy.TAOBAO_ENTRY.replace("pages-fast.m.taobao.com", "pages.m.taobao.com")}) {
+            checked++;
+            if (!UrlPolicy.isTaobaoIdentityEntry(idUrl))
+                throw new AssertionError("Expected identity entry match: " + idUrl);
+        }
+        for (String nonId : new String[]{null, UrlPolicy.TAOBAO_PARCELS_ENTRY,
+                "https://login.m.taobao.com/login.htm",
+                "https://pages-fast.m.taobao.com.evil.example/wow/z/uniapp/1011717/last-mile-fe/end-collect-platform/identity-code"}) {
+            checked++;
+            if (UrlPolicy.isTaobaoIdentityEntry(nonId))
+                throw new AssertionError("Unexpected identity entry match: " + nonId);
+        }
+        for (String authUrl : new String[]{
+                "https://login.m.taobao.com/login.htm",
+                "https://passport.taobao.com/ac/password_find.htm",
+                "https://login.tmall.com/",
+                "https://aq.taobao.com/durex/validate",
+                "https://sec.taobao.com/query.htm",
+                "https://h5api.m.taobao.com/h5/mtop.test/1.0/_____tmd_____/punish"}) {
+            checked++;
+            if (!UrlPolicy.isTaobaoAuthUrl(authUrl))
+                throw new AssertionError("Expected Taobao auth/verify match: " + authUrl);
+        }
+        for (String nonAuth : new String[]{null, UrlPolicy.TAOBAO_ENTRY, UrlPolicy.TAOBAO_PARCELS_ENTRY,
+                "https://login.taobao.com.evil.example/"}) {
+            checked++;
+            if (UrlPolicy.isTaobaoAuthUrl(nonAuth))
+                throw new AssertionError("Unexpected Taobao auth/verify match: " + nonAuth);
+        }
         System.out.println("PASS: " + checked + " Taobao navigation allowlist cases.");
     }
 }

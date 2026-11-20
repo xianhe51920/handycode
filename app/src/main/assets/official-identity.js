@@ -2,6 +2,16 @@
     'use strict';
     if (global.HandyCodeOfficialIdentity) return;
     var attempts = new WeakMap();
+    function isAuthUrl(raw, base) {
+        try {
+            var url = new URL(raw, base);
+            if (!/(^|\.)(taobao|tmall|alipay|cainiao|alibaba)\.com$/i.test(url.hostname)) return false;
+            return /^(login|passport|aq|sec)\./i.test(url.hostname)
+                || /(^|\/)(login|punish|verify|baxia)(\.|\/|_|-|$)/i.test(url.pathname);
+        } catch (ignore) {
+            return false;
+        }
+    }
     function authenticationFrameVisible(doc) {
         var frames = doc.querySelectorAll('iframe');
         for (var i = 0; i < frames.length; i++) {
@@ -21,11 +31,7 @@
                 if (view && rect.width >= view.innerWidth * 0.8 && rect.height >= view.innerHeight * 0.5) return true;
                 continue;
             }
-            try {
-                var url = new URL(raw, doc.baseURI || undefined);
-                if (/(^|\.)(taobao|tmall|alipay|cainiao)\.com$/.test(url.hostname)
-                        && (/^(login|passport)\./.test(url.hostname) || /(^|\/)login(\.|\/|$)/.test(url.pathname))) return true;
-            } catch (ignore) {}
+            if (isAuthUrl(raw, doc.baseURI || undefined)) return true;
         }
         return false;
     }
@@ -33,6 +39,8 @@
         // Login is hosted in a cross-origin iframe. Its input fields do not
         // appear in the parent document, including while the iframe is loading.
         if (authenticationFrameVisible(doc)) return true;
+        var loc = doc.location || global.location;
+        if (loc && loc.hostname && isAuthUrl('https://' + loc.hostname + (loc.pathname || '/'), undefined)) return true;
         var controls = doc.querySelectorAll('input,textarea,[contenteditable="true"],[role="textbox"]');
         for (var i = 0; i < controls.length; i++) {
             var item = controls[i], type = (item.type || '').toLowerCase();

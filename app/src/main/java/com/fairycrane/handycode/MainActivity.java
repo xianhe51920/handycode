@@ -42,6 +42,8 @@ public final class MainActivity extends Activity {
     private static final String[] TAB_NAMES = {"菜鸟", "淘宝", "拼多多", "京东"};
     private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab", KEY_THEME_MODE = "theme_mode";
     private static final String KEY_TAOBAO_LOGIN_REQUIRED = "taobao_login_required";
+    private static final String KEY_APP_VERSION_CODE = "app_version_code", KEY_APP_UPDATE_TIME = "app_update_time";
+    private static final long LOGIN_THEME_GRACE_MS = 3500L;
 
     private final android.os.Handler scanHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean scanBright;
@@ -110,7 +112,9 @@ public final class MainActivity extends Activity {
     private final Handler taobaoHandler = new Handler(Looper.getMainLooper());
     private final TaobaoLoadGuard taobaoLoad = new TaobaoLoadGuard();
     private final Runnable taobaoDeadline = this::checkTaobaoDeadline;
+    private final Runnable taobaoLoginFallback = this::revealTaobaoLoginFallback;
     private boolean taobaoLoadFailed, taobaoLoginVisible;
+    private boolean needsUpgradeCacheClear, needsFreshTaobaoLoad;
     private int selected = 0;
     private int themeMode;
     private float chromeLight;
@@ -287,6 +291,13 @@ public final class MainActivity extends Activity {
             TextView errDetail = browserFrame.findViewWithTag("error_detail");
             if (errTitle != null) errTitle.setTextColor(ink);
             if (errDetail != null) errDetail.setTextColor(muted);
+            for (String tag : new String[]{"error_open_identity", "error_reset_taobao"}) {
+                View action = browserFrame.findViewWithTag(tag);
+                if (action instanceof Button) {
+                    ((Button) action).setTextColor(ink);
+                    action.setBackground(background(AppTheme.elevated(dark), 12));
+                }
+            }
         }
 
         if (browser != null) {
@@ -360,6 +371,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         android.content.SharedPreferences ui = getSharedPreferences(PREF_UI, MODE_PRIVATE);
+        detectAppUpgrade(ui);
         themeMode = ui.getInt(KEY_THEME_MODE, 0);
         if (themeMode != AppTheme.MODE_LIGHT && themeMode != AppTheme.MODE_DARK) {
             themeMode = AppTheme.systemDefault(this);
@@ -381,6 +393,27 @@ public final class MainActivity extends Activity {
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
         }
         selectPage(selected);
+    }
+
+    private void detectAppUpgrade(android.content.SharedPreferences ui) {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            long currentVersion = android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+            long currentUpdateTime = info.lastUpdateTime;
+            long storedVersion = ui.getLong(KEY_APP_VERSION_CODE, -1L);
+            long storedUpdateTime = ui.getLong(KEY_APP_UPDATE_TIME, -1L);
+            if (storedUpdateTime != -1L && (storedVersion != currentVersion || storedUpdateTime != currentUpdateTime)) {
+                needsUpgradeCacheClear = true;
+                needsFreshTaobaoLoad = true;
+                ui.edit().putBoolean(KEY_TAOBAO_LOGIN_REQUIRED, false).apply();
+            }
+            if (storedVersion != currentVersion || storedUpdateTime != currentUpdateTime) {
+                ui.edit()
+                    .putLong(KEY_APP_VERSION_CODE, currentVersion)
+                    .putLong(KEY_APP_UPDATE_TIME, currentUpdateTime)
+                    .apply();
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -770,11 +803,13 @@ public final class MainActivity extends Activity {
 
     private void stopTaobaoDeadline() {
         taobaoHandler.removeCallbacks(taobaoDeadline);
+        taobaoHandler.removeCallbacks(taobaoLoginFallback);
         taobaoLoad.stop();
     }
 
     private void resetTaobaoLoad() {
         stopTaobaoDeadline();
+        taobaoHandler.removeCallbacks(taobaoLoginFallback);
         taobaoLoadFailed = taobaoLoginVisible = false;
     }
 
@@ -822,6 +857,13 @@ public final class MainActivity extends Activity {
         Button retry = button("重新打开网页", true);
         retry.setOnClickListener(v -> reloadTaobao());
         errorPanel.addView(retry, size(-1, 48));
+        Button resetTaobao = button("清除淘宝缓存并重新登录", false);
+        resetTaobao.setTag("error_reset_taobao");
+        resetTaobao.setVisibility(View.GONE);
+        resetTaobao.setOnClickListener(v -> confirmResetTaobaoSiteData());
+        LinearLayout.LayoutParams resetSize = size(-1, 48);
+        resetSize.topMargin = dp(10);
+        errorPanel.addView(resetTaobao, resetSize);
         scroll.addView(errorPanel);
         scroll.setTag("error_overlay");
         scroll.setVisibility(View.GONE);
@@ -1050,11 +1092,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean sameIdentityPage(String url) {
-        if (!UrlPolicy.isAllowed(url)) return false;
-        android.net.Uri actual = android.net.Uri.parse(url);
-        android.net.Uri expected = android.net.Uri.parse(UrlPolicy.TAOBAO_ENTRY);
-        return java.util.Objects.equals(actual.getHost(), expected.getHost())
-            && java.util.Objects.equals(actual.getPath(), expected.getPath());
+        return UrlPolicy.isTaobaoIdentityEntry(url);
     }
 
     private void renderCombined(WebView view, String url) {
@@ -1116,6 +1154,13 @@ public final class MainActivity extends Activity {
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         settings.setSafeBrowsingEnabled(true);
+        if (!popup && needsUpgradeCacheClear) {
+            web.clearCache(true);
+            needsUpgradeCacheClear = false;
+        }
+        if (!popup && needsFreshTaobaoLoad) {
+            settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        }
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         TaobaoLoginTheme.apply(web, isDark());
@@ -1155,6 +1200,7 @@ public final class MainActivity extends Activity {
                     combinedDisplayed = false;
                     combineGeneration++;
                     taobaoLoginVisible = false;
+                    taobaoHandler.removeCallbacks(taobaoLoginFallback);
                     updateNavigationEnabled();
                     if (combinedMarkup != null) showTransition();
                 } else {
@@ -1168,18 +1214,27 @@ public final class MainActivity extends Activity {
             }
             @Override public void onPageFinished(WebView view, String url) {
                 CookieManager.getInstance().flush();
+                if (!popup && needsFreshTaobaoLoad) {
+                    needsFreshTaobaoLoad = false;
+                    view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+                }
                 TaobaoLoginTheme.apply(view, isDark());
                 prepareInlinePage(view, url);
                 if (popup && !popupInlineWorkflow) installPresentationObserver(view);
                 if (!popup) {
                     installPresentationObserver(view);
-                    renderCombined(view, url);
+                    if (!taobaoLoadFailed && UrlPolicy.isTaobaoAuthUrl(url)) revealOfficialLogin(view);
+                    else renderCombined(view, url);
                 } else waitForPopupIdentity(view, ++popupGeneration);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
                 TaobaoLoginTheme.apply(view, isDark());
                 prepareInlinePage(view, url);
                 if (!popup || !popupInlineWorkflow) installPresentationObserver(view);
+                if (!popup && !taobaoLoadFailed) {
+                    if (UrlPolicy.isTaobaoAuthUrl(url)) revealOfficialLogin(view);
+                    else if (!combinedDisplayed && !taobaoLoginVisible) renderCombined(view, url);
+                }
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
                 if (combinedMarkup != null) {
@@ -1396,21 +1451,54 @@ public final class MainActivity extends Activity {
         if (browser != view || taobaoLoadFailed) return;
         if (!taobaoLoginVisible) {
             taobaoLoginVisible = true;
-            // Discovering an iframe does not mean its login form has loaded.
-            // Keep the foreground deadline alive until the themed form paints.
-            // A separate timer tied to combineGeneration can be invalidated by
-            // onPageFinished/renderCombined, leaving the cover up indefinitely.
+            // Discovering an iframe or auth page does not mean its themed controls have painted.
+            // Keep the foreground deadline alive for a bounded grace window so unstyled/slow login UIs recover.
             setSignedIn(TAB_TAOBAO, false);
+            taobaoHandler.removeCallbacks(taobaoLoginFallback);
+            taobaoHandler.postDelayed(taobaoLoginFallback, LOGIN_THEME_GRACE_MS);
         }
         if (!TaobaoLoginTheme.ready(view)) return;
-        if (taobaoLoginChromeScript == null || transitionPanel.getVisibility() != View.VISIBLE) return;
+        commitRevealOfficialLogin(view);
+    }
+
+    private void revealTaobaoLoginFallback() {
+        final WebView view = browser;
+        if (isFinishing() || isDestroyed() || view == null || !taobaoLoginVisible || taobaoLoadFailed
+                || combinedDisplayed || !UrlPolicy.isAllowed(view.getUrl())) return;
         final int expected = combineGeneration;
+        String url = view.getUrl();
+        if (officialIdentityScript == null) {
+            if (UrlPolicy.isTaobaoAuthUrl(url)) commitRevealOfficialLogin(view);
+            return;
+        }
+        view.evaluateJavascript(officialIdentityScript + "\nHandyCodeOfficialIdentity.loginVisible(document)", result -> {
+            if (browser != view || expected != combineGeneration || !taobaoLoginVisible
+                    || taobaoLoadFailed || combinedDisplayed || isFinishing() || isDestroyed()) return;
+            if ("true".equals(result) || UrlPolicy.isTaobaoAuthUrl(view.getUrl())) {
+                commitRevealOfficialLogin(view);
+            }
+        });
+    }
+
+    private void commitRevealOfficialLogin(WebView view) {
+        if (browser != view || taobaoLoadFailed || combinedDisplayed) return;
+        taobaoHandler.removeCallbacks(taobaoLoginFallback);
+        if (transitionPanel.getVisibility() != View.VISIBLE) {
+            stopTaobaoDeadline();
+            return;
+        }
+        final int expected = combineGeneration;
+        if (taobaoLoginChromeScript == null) {
+            stopTaobaoDeadline();
+            hideTransition(false);
+            return;
+        }
         view.evaluateJavascript(taobaoLoginChromeScript, ignored -> {
             if (browser != view || expected != combineGeneration || isFinishing() || isDestroyed()) return;
             view.postVisualStateCallback(expected, new WebView.VisualStateCallback() {
                 @Override public void onComplete(long requestId) {
                     if (browser == view && expected == combineGeneration && taobaoLoginVisible
-                            && !taobaoLoadFailed && !isFinishing() && !isDestroyed()) {
+                            && !taobaoLoadFailed && !combinedDisplayed && !isFinishing() && !isDestroyed()) {
                         stopTaobaoDeadline();
                         hideTransition(false);
                     }
@@ -1469,15 +1557,48 @@ public final class MainActivity extends Activity {
         ((TextView) browserFrame.findViewWithTag("error_title")).setText(title);
         ((TextView) browserFrame.findViewWithTag("error_detail")).setText(detail);
         browserFrame.findViewWithTag("error_open_identity").setVisibility(offerIdentityLink ? View.VISIBLE : View.GONE);
+        View resetButton = browserFrame.findViewWithTag("error_reset_taobao");
+        if (resetButton != null) resetButton.setVisibility(SiteDataClearer.isSupported() ? View.VISIBLE : View.GONE);
         View overlay = browserFrame.findViewWithTag("error_overlay");
         overlay.setVisibility(View.VISIBLE);
         overlay.bringToFront();
     }
 
+    private void confirmResetTaobaoSiteData() {
+        if (!SiteDataClearer.isSupported()) {
+            android.widget.Toast.makeText(this, "请先更新 Android System WebView / Chrome",
+                android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("重置淘宝登录态？")
+            .setMessage("只清除应用内淘宝和菜鸟的站点缓存与登录态，不影响拼多多和京东。清除后将自动重新加载淘宝页面。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("清除并重试", (d, w) -> resetTaobaoSiteData())
+            .show();
+    }
+
+    private void resetTaobaoSiteData() {
+        if (selected != TAB_TAOBAO || SiteDataClearer.isBusy() || switchAnimation != null
+                || pageDragging || !SiteDataClearer.isSupported()) return;
+        needsFreshTaobaoLoad = true;
+        if (browser != null) browser.clearCache(true);
+        SiteDataClearer.start(TAB_TAOBAO);
+    }
+
     private void reloadTaobao() {
         hideError();
-        if (browser == null) ensureBrowser();
-        else loadCombined();
+        needsFreshTaobaoLoad = true;
+        if (browser != null) {
+            browser.stopLoading();
+            browser.clearCache(true);
+            browser.setWebViewClient(new WebViewClient());
+            browser.setWebChromeClient(null);
+            browserFrame.removeView(browser);
+            browser.destroy();
+            browser = null;
+        }
+        ensureBrowser();
     }
 
     private void goBack() {
@@ -1555,6 +1676,7 @@ public final class MainActivity extends Activity {
         cancelSwitchAnimation();
         stopShimmer();
         stopTaobaoDeadline();
+        taobaoHandler.removeCallbacks(taobaoLoginFallback);
         combineGeneration++;
         popupGeneration++;
         pddPage.destroyPage();
