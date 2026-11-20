@@ -22,8 +22,6 @@ targets:
           - icons/**
           - licenses/**
       - path: ../app/src/main/res/drawable-nodpi
-    info:
-      path: HandyCode/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fairycrane.handycode

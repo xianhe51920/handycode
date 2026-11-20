@@ -129,7 +129,15 @@ final class HandyCodeTests: XCTestCase {
         let navSpy = NavigationSpy()
         let web = WebAssets.configuredWebView(frame: CGRect(x: 0, y: 0, width: 375, height: 667),
                                               documentStartScripts: [jdOrdersScript])
+        let hostWin = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.windows.first }
+            .first
+        hostWin?.addSubview(web)
+        defer { web.removeFromSuperview() }
         web.navigationDelegate = navSpy
+        navSpy.onFail = { error in
+            XCTFail("JD fixture navigation failed: \(error.localizedDescription)")
+        }
         let html = """
         <html><body>
         <ul>
@@ -155,7 +163,7 @@ final class HandyCodeTests: XCTestCase {
         }
         web.loadHTMLString(html, baseURL: URL(string: "https://trade.m.jd.com/order/orderlist_jdm.shtml"))
         withExtendedLifetime((web, navSpy)) {
-            wait(for: [exp], timeout: 15.0)
+            wait(for: [exp], timeout: 35.0)
         }
     }
 

@@ -88,7 +88,7 @@ jobs:
                       os.rename(fpath, fpath + ".png")
           PY
           fi
-      - name: Build unsigned Release IPA
+      - name: Build unsigned Release IPA and Simulator App
         run: |
           cd ios
           xcodebuild build \
@@ -106,6 +106,15 @@ jobs:
           zip -r HandyCode-0.8.4-ios-unsigned.ipa Payload
           shasum -a 256 HandyCode-0.8.4-ios-unsigned.ipa > HandyCode-0.8.4-ios-unsigned.ipa.sha256
           rm -rf Payload
+          cd ../ios
+          xcodebuild build \
+            -project HandyCode.xcodeproj \
+            -scheme HandyCode \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath ../build/ios-sim-derived
+          cd ../build/ios-sim-derived/Build/Products/Release-iphonesimulator
+          zip -r "$GITHUB_WORKSPACE/dist/HandyCode-0.8.4-ios-simulator-app.zip" HandyCode.app
       - name: Upload iOS artifacts and screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -114,4 +123,5 @@ jobs:
           path: |
             dist/HandyCode-0.8.4-ios-unsigned.ipa
             dist/HandyCode-0.8.4-ios-unsigned.ipa.sha256
+            dist/HandyCode-0.8.4-ios-simulator-app.zip
             build/ios-screenshots/

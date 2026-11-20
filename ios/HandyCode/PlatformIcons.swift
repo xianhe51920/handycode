@@ -1,5 +1,4 @@
 import UIKit
-import WebKit
 
 enum PlatformIcons {
     static func icon(for index: Int) -> UIImage? {
@@ -77,19 +76,9 @@ enum PlatformIcons {
 }
 
 final class ThemeToggleButton: UIControl {
-    private let backupView = UIImageView()
-    private var renderer: WKWebView?
-    private var rendererReady = false
+    private let imageView = UIImageView()
     private var dark = false
     var onToggle: ((Bool) -> Void)?
-
-    private final class WeakGlassHandler: NSObject, WKScriptMessageHandler {
-        weak var owner: ThemeToggleButton?
-        init(_ owner: ThemeToggleButton) { self.owner = owner }
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            owner?.handleGlassMessage(message.body as? String ?? "")
-        }
-    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -97,94 +86,50 @@ final class ThemeToggleButton: UIControl {
         accessibilityTraits = .button
         accessibilityIdentifier = "theme_toggle"
 
-        backupView.contentMode = .scaleAspectFit
-        backupView.isUserInteractionEnabled = false
-        addSubview(backupView)
+        imageView.contentMode = .scaleAspectFit
+        imageView.isUserInteractionEnabled = false
+        addSubview(imageView)
 
-        setupRenderer()
+        addTarget(self, action: #selector(handleTouchDown), for: .touchDown)
+        addTarget(self, action: #selector(handleTouchUp), for: [.touchCancel, .touchDragExit, .touchUpOutside])
         addTarget(self, action: #selector(handleTap), for: .touchUpInside)
         setDark(false, animated: false)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    deinit {
-        renderer?.configuration.userContentController.removeScriptMessageHandler(forName: "hcGlass")
-    }
-
-    private func setupRenderer() {
-        guard let script = WebAssets.readText("glass-theme-switch.js"), !script.isEmpty else { return }
-        let config = WKWebViewConfiguration()
-        config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        let controller = WKUserContentController()
-        controller.add(WeakGlassHandler(self), name: "hcGlass")
-        config.userContentController = controller
-
-        let web = WKWebView(frame: bounds, configuration: config)
-        web.isOpaque = false
-        web.backgroundColor = .clear
-        web.scrollView.backgroundColor = .clear
-        web.scrollView.isScrollEnabled = false
-        web.isUserInteractionEnabled = false
-        web.alpha = 0
-        addSubview(web)
-        renderer = web
-
-        let html = """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
-        <style>html,body{margin:0;overflow:hidden;background:transparent}canvas{display:block;width:100vw;height:100vh;touch-action:none}</style>
-        </head><body><canvas id="gl"></canvas><script>
-        window.HandyCodeGlassInitialDark=\(dark ? "true" : "false");
-        window.HandyCodeGlassBridge={
-          ready:function(){try{window.webkit.messageHandlers.hcGlass.postMessage('ready');}catch(e){}},
-          unavailable:function(){try{window.webkit.messageHandlers.hcGlass.postMessage('unavailable');}catch(e){}},
-          choose:function(){},blend:function(){},settled:function(){}
-        };
-        try{\(script)}catch(e){window.HandyCodeGlassBridge.unavailable();}
-        </script></body></html>
-        """
-        web.loadHTMLString(html, baseURL: nil)
-    }
-
-    private func handleGlassMessage(_ body: String) {
-        if body == "ready" {
-            rendererReady = true
-            let js = "window.HandyCodeSetGlassDark&&window.HandyCodeSetGlassDark(\(dark ? "true" : "false"));"
-            renderer?.evaluateJavaScript(js, completionHandler: nil)
-            UIView.animate(withDuration: 0.16) {
-                self.renderer?.alpha = 1
-            }
-        } else if body == "unavailable" {
-            rendererReady = false
-            renderer?.alpha = 0
-        }
-    }
-
     func setDark(_ dark: Bool, animated: Bool) {
         self.dark = dark
         accessibilityLabel = dark ? "切换外观模式，当前为深色" : "切换外观模式，当前为浅色"
         let nextImage = PlatformIcons.themeImage(dark: dark)
         if animated {
-            UIView.transition(with: backupView, duration: 0.22, options: .transitionCrossDissolve) {
-                self.backupView.image = nextImage
+            UIView.transition(with: imageView, duration: 0.22, options: .transitionCrossDissolve) {
+                self.imageView.image = nextImage
             }
         } else {
-            backupView.image = nextImage
+            imageView.image = nextImage
         }
-        if rendererReady {
-            let js = "window.HandyCodeSetGlassDark&&window.HandyCodeSetGlassDark(\(dark ? "true" : "false"));"
-            renderer?.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    @objc private func handleTouchDown() {
+        UIView.animate(withDuration: 0.12) {
+            self.imageView.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+        }
+    }
+
+    @objc private func handleTouchUp() {
+        UIView.animate(withDuration: 0.18, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            self.imageView.transform = .identity
         }
     }
 
     @objc private func handleTap() {
+        handleTouchUp()
         onToggle?(!dark)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        backupView.frame = bounds
-        renderer?.frame = bounds
+        imageView.frame = bounds
     }
 }
