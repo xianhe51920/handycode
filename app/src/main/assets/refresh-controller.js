@@ -9,7 +9,7 @@
         function queue() {
             // Throttle, rather than continually restarting a debounce timer.
             if (queued !== null) return;
-            queued = later(function () { queued = null; options.project(); }, 100);
+            queued = later(function () { queued = null; options.project(); }, 50);
         }
         function tick(token) {
             if (!pending || token !== generation) return;
@@ -29,7 +29,7 @@
                 retryAt = elapsed + 12000;
                 options.reload();
             }
-            watch = later(function () { tick(token); }, 300);
+            watch = later(function () { tick(token); }, 150);
         }
         function begin(reload) {
             if (pending) { queue(); return false; }
@@ -38,7 +38,7 @@
             var token = ++generation;
             options.busy(true);
             if (reload) options.reload();
-            watch = later(function () { tick(token); }, 100);
+            watch = later(function () { tick(token); }, 60);
             queue();
             return true;
         }

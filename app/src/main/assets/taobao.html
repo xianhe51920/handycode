@@ -134,6 +134,7 @@ document.addEventListener('touchend',endTouch,{passive:true});
 document.addEventListener('touchcancel',endTouch,{passive:true});
 var props=['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','font-style','line-height','letter-spacing','text-align','text-decoration','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','vertical-align','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','flex-basis','gap','grid-template-columns','grid-template-rows','object-fit','overflow-wrap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
 var parcelProps=['overflow-x','overflow-y','text-overflow','-webkit-line-clamp','-webkit-box-orient','grid-column','grid-row','column-gap','row-gap'];
+var allParcelProps=props.concat(parcelProps);
 var responsiveSize=/^(?:width|height|min-width|min-height|max-width|max-height|flex-basis|grid-template-columns|grid-template-rows)$/;
 
 function clone(source,doc,budget,skip,parcel){
@@ -157,10 +158,13 @@ function clone(source,doc,budget,skip,parcel){
  }
  // A parcel's auto and percentage sizes must resolve against its new parent.
  var sizing=parcel&&source.computedStyleMap&&source.computedStyleMap();
- (parcel?props.concat(parcelProps):props).forEach(function(name){
+ var propList=parcel?allParcelProps:props;
+ for(var i=0;i<propList.length;i++){
+  var name=propList[i];
   var original=sizing&&responsiveSize.test(name)&&sizing.get(name);
-  copy.style.setProperty(name,original?String(original):css.getPropertyValue(name),'important');
- });
+  var val=original?String(original):css.getPropertyValue(name);
+  if(val)copy.style.setProperty(name,val,'important');
+ }
  // The official code font is scoped to the source document. Use the same
  // system stack as the Pinduoduo card in the projected page.
  if(parcel&&css.getPropertyValue('font-family')==='AlibabaSans102-Bd'){
@@ -276,7 +280,7 @@ function project(state){
   }
   if(state.type==='parcels'&&!state.pendingSelected){
    var pending=textElement(doc,'待取件');
-   if(pending){state.pendingSelected=true;pending.click();queue(state);return}
+   if(pending){state.pendingSelected=true;pending.click();queue(state)}
   }
   var root=select(doc,state.type);
   if(!root)return;

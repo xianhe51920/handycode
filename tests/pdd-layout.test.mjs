@@ -40,7 +40,7 @@ function fixture({path='/mdkd/package', subframe=false, parcels='empty', delayed
  runInNewContext(motion + '\n' + script,context);
  return {window,document,image,context,phases,refreshCalls,intervals,
   mutate(target){for(const observer of observers)if(observer.active)observer.callback([{target,type:'characterData'}]);},
-  flushProjection(){const job=timers.find(task=>task.delay===160&&!task.cancelled);if(job){job.cancelled=true;job.fn();}},
+  flushProjection(){const job=timers.find(task=>task.delay===25&&!task.cancelled);if(job){job.cancelled=true;job.fn();}},
   mountSource(){document.body.appendChild(source);for(const observer of [...observers])if(observer.active)observer.callback();},
   expireBootWait(){for(const task of timers)if(task.delay===15000&&!task.cancelled)task.fn();},
   async finishRefresh(part,error=false){await new Promise(resolve=>setImmediate(resolve));error?pending[part].reject(new Error('test-failure')):pending[part].resolve();await new Promise(resolve=>setImmediate(resolve));const scheduled=timers.splice(0);for(const task of scheduled)if(task.delay===40)task.fn();},
@@ -235,4 +235,11 @@ assert.equal(f.document.querySelector('.hc-pdd-phone').textContent.includes('更
 managePhone.click();
 assert.equal(f.clicks,1,'The phone shortcut forwards the official action even with parcels present');
 assert.equal(f.document.getElementById('hc-pdd-shell').hidden,false,'Keep the current cards until the official route is ready');
+const emptyWithRedundant=fixture({parcels:'empty'});
+emptyWithRedundant.document.querySelector('[class*="package-none-container"]').innerHTML='<div class="package-none-text">当前站点暂无收到的快递</div><div class="package-none-tip-text">您可尝试以下方式查询未展示快递</div><div class="package-none-bind"><div class="btn bind-mobile">绑定手机号</div><div class="btn add-package">添加快递</div></div><div class="package-none-bind-item"><div class="btn">去绑定</div></div>';
+emptyWithRedundant.window.HandyPddLayout.update();
+const emptyCardText=emptyWithRedundant.document.getElementById('hc-pdd-parcels').textContent;
+assert.ok(emptyWithRedundant.document.querySelector('#hc-pdd-parcels .hc-pdd-empty'),'Empty parcel message uses centered container');
+assert.match(emptyCardText,/当前站点暂无收到的快递/);
+assert.doesNotMatch(emptyCardText,/您可尝试以下方式查询未展示快递|绑定手机号|添加快递|去绑定/);
 console.log('PDD layout DOM checks passed: two cards, official barcode, updates, independent actions, scope and late-root startup recovery');

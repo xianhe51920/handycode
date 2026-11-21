@@ -31,13 +31,17 @@ f=fixture({frameUrl:'https://login.m.taobao.com/login.htm',frameOffscreen:true})
 f=fixture({rootPresent:false});assert.equal(f.api.phase(f.doc),'loading','Initial page has no login or identity evidence');
 f=fixture({inputType:'tel'});assert.equal(f.api.phase(f.doc),'login');f.removeInput();
 assert.equal(f.api.phase(f.doc),'identity-loading','Identity loading can be reported before a code is available');
-f=fixture();const phases=[],jobs=[],observers=[];
-f.doc.documentElement={};f.context.console={info:value=>phases.push(value)};f.context.setTimeout=fn=>{jobs.push(fn);};
+f=fixture();const phases=[],jobs=[],observers=[],loadListeners=[];
+f.doc.documentElement={};f.doc.addEventListener=(type,fn,capture)=>{if(type==='load'&&capture)loadListeners.push(fn);};
+f.doc.removeEventListener=(type,fn,capture)=>{if(type==='load'&&capture){const i=loadListeners.indexOf(fn);if(i>=0)loadListeners.splice(i,1);}};
+f.context.console={info:value=>phases.push(value)};f.context.setTimeout=fn=>{jobs.push(fn);};
 f.context.MutationObserver=class {constructor(callback){this.callback=callback;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};
 f.api.watch(f.doc);assert.deepEqual(phases,['__HANDYCODE_PHASE__:identity-loading']);
+assert.equal(loadListeners.length,1,'Capture load listener registered for barcode image completion');
 observers[0].callback();observers[0].callback();assert.equal(jobs.length,1,'Batch repeated DOM changes into one presentation notification');jobs.shift()();assert.equal(phases.length,1,'Do not reopen the same loading state repeatedly');
-f.authenticated();observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:ready');
+f.authenticated();loadListeners[0]();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:ready','Image load event triggers ready phase without waiting for DOM mutation');
 f.doc.getElementById=()=>({});observers[0].callback();jobs.shift()();assert.equal(phases.at(-1),'__HANDYCODE_PHASE__:merged');assert.equal(observers[0].disconnected,true,'Stop observing presentation after the merged page is installed');
+assert.equal(loadListeners.length,0,'Remove capture load listener after merge');
 for(const verifyUrl of ['https://aq.taobao.com/durex/validate','https://sec.taobao.com/query.htm','https://h5api.m.taobao.com/h5/_____tmd_____/punish','https://login.m.taobao.com/verify']){
  f=fixture({frameUrl:verifyUrl});
  assert.equal(f.api.phase(f.doc),'login',`Verification/auth iframe ${verifyUrl} must trigger login/verify presentation`);

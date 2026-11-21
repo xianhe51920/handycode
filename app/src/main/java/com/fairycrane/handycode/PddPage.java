@@ -55,7 +55,18 @@ final class PddPage extends LinearLayout {
     private boolean sawLogin, returnedAfterLogin;
     private boolean layoutWorkflow;
     private boolean projectionActive;
+    private boolean prewarming;
+    private Runnable onSettled;
     private boolean dark;
+
+    void setOnSettled(Runnable listener) {
+        onSettled = listener;
+    }
+
+    private void notifySettled() {
+        Runnable listener = onSettled;
+        if (listener != null) listener.run();
+    }
 
     void checkVisibleScanCode(android.webkit.ValueCallback<String> callback) {
         if (web == null || layoutWorkflow || cover.getVisibility() == View.VISIBLE || !pageCommitted) {
@@ -197,10 +208,21 @@ final class PddPage extends LinearLayout {
                 if (destroyed || web != view || navigation != expected || coverFading || cover.getVisibility() != View.VISIBLE) return;
                 coverFading = true;
                 stopPresentationWatch();
+                if (prewarming) {
+                    cover.setAnimating(false);
+                    cover.setVisibility(View.GONE);
+                    cover.setAlpha(1f);
+                    pausePage();
+                    notifySettled();
+                    return;
+                }
                 Runnable reveal = () -> {
                     if (destroyed || web != view || navigation != expected) return;
                     cover.animate().alpha(0f).setDuration(PickupLoadingView.FADE_DURATION).withEndAction(() -> {
-                        if (!destroyed && navigation == expected) cover.setVisibility(View.GONE);
+                        if (!destroyed && navigation == expected) {
+                            cover.setVisibility(View.GONE);
+                            notifySettled();
+                        }
                     }).start();
                 };
                 if (packageNavigation) cover.morphTo(coverWidth, coverIdentity, coverParcels, coverHeading, reveal);
@@ -214,7 +236,7 @@ final class PddPage extends LinearLayout {
         syncDark(view);
         if (!pageCommitted || coverFading || cover.getVisibility() != View.VISIBLE) return;
         final long expected = navigation;
-        view.evaluateJavascript("(function(){var s=document.getElementById('hc-pdd-shell'),a=document.getElementById('hc-pdd-identity'),b=document.getElementById('hc-pdd-parcels');if(!window.HandyPddLayout||!s||!a||!b||!document.querySelector('[data-hc-pdd-source]'))return null;return {width:innerWidth,identity:a.getBoundingClientRect().height,parcels:b.getBoundingClientRect().height,heading:s.querySelector('.hc-pdd-heading').getBoundingClientRect().height,ready:!!(a.dataset.ready&&b.dataset.ready),settled:HandyPickupMotion.isSettled(a)&&HandyPickupMotion.isSettled(b)};})()", ready -> {
+        view.evaluateJavascript("(function(){var s=document.getElementById('hc-pdd-shell'),a=document.getElementById('hc-pdd-identity'),b=document.getElementById('hc-pdd-parcels');if(!window.HandyPddLayout||!s||!a||!b||!document.querySelector('[data-hc-pdd-source]'))return null;var r=!!(a.dataset.ready&&b.dataset.ready);if(r&&window.HandyPickupMotion){HandyPickupMotion.cancel(a);HandyPickupMotion.cancel(b);}return {width:innerWidth,identity:a.getBoundingClientRect().height,parcels:b.getBoundingClientRect().height,heading:s.querySelector('.hc-pdd-heading').getBoundingClientRect().height,ready:r,settled:HandyPickupMotion.isSettled(a)&&HandyPickupMotion.isSettled(b)};})()", ready -> {
             if (destroyed || web != view || navigation != expected) return;
             try {
                 org.json.JSONObject geometry = new org.json.JSONObject(ready);
@@ -255,22 +277,36 @@ final class PddPage extends LinearLayout {
             @Override public void run() {
                 if (presentationWatch != this) return;
                 if (destroyed || web != view || navigation != expected || coverFading
-                        || cover.getVisibility() != View.VISIBLE || attempts++ >= 60) {
+                        || cover.getVisibility() != View.VISIBLE || attempts++ >= 200) {
                     stopPresentationWatch(); return;
                 }
                 if (isPackageUrl(view.getUrl())) { packageNavigation = true; revealAssembledPage(view); }
                 else if (UrlPolicy.isPddAllowed(view.getUrl())) revealPreparedPage(view);
-                if (presentationWatch == this) postDelayed(this, 500);
+                if (presentationWatch == this) postDelayed(this, 100);
             }
         };
-        postDelayed(presentationWatch, 250);
+        postDelayed(presentationWatch, 80);
     }
 
     void showPage() {
         if (destroyed || compatibilityScript == null) return;
-        cover.setAnimating(true);
+        prewarming = false;
+        cover.setAnimating(cover.getVisibility() == View.VISIBLE);
         setProjectionActive(true);
         if (web != null) { web.onResume(); syncDark(web); return; }
+        ensureWeb();
+    }
+
+    void prewarmPage() {
+        if (destroyed || compatibilityScript == null || web != null) return;
+        prewarming = true;
+        cover.setAnimating(false);
+        setProjectionActive(true);
+        ensureWeb();
+    }
+
+    private void ensureWeb() {
+        if (web != null) return;
         web = new WebView(getContext());
         web.setBackgroundColor(AppTheme.bg(dark));
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -312,22 +348,24 @@ final class PddPage extends LinearLayout {
                 String url = request.getUrl().toString();
                 boolean appBundle = UrlPolicy.isPddAppBundle(url);
                 String refreshPart = UrlPolicy.pddRefreshPart(url);
-                if (!"GET".equals(request.getMethod()) || (!appBundle && refreshPart == null)) return null;
-                byte[] bytes = adjustedBundle(url);
+                boolean immutableAsset = !appBundle && refreshPart == null && UrlPolicy.isPddImmutableStaticAsset(url);
+                if (!"GET".equals(request.getMethod()) || (!appBundle && refreshPart == null && !immutableAsset)) return null;
+                byte[] bytes = adjustedBundle(url, !immutableAsset);
                 if (bytes == null) {
                     if (appBundle) post(() -> { if (!destroyed) { actions.setVisibility(View.VISIBLE); status.setText("网页兼容加载失败，请点重试"); } });
                     return null;
                 }
                 if (appBundle) bundleAdjusted = true;
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Cache-Control", "no-store");
+                headers.put("Cache-Control", immutableAsset ? "public, max-age=31536000, immutable" : "no-store");
                 headers.put("Access-Control-Allow-Origin", "https://m.pinduoduo.net");
                 InputStream stream = new ByteArrayInputStream(bytes);
                 if (appBundle) {
                     byte[] prefix = ("window.__HC_DARK__=" + dark + ";\n").getBytes(StandardCharsets.UTF_8);
                     stream = new java.io.SequenceInputStream(new ByteArrayInputStream(prefix), stream);
                 }
-                return new WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, stream);
+                String mime = immutableAsset && isCssAsset(url) ? "text/css" : "application/javascript";
+                return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, stream);
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
                 final long expected = ++navigation;
@@ -389,15 +427,27 @@ final class PddPage extends LinearLayout {
                 }
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) { actions.setVisibility(View.VISIBLE); status.setText("网页未打开，请检查网络后重试"); }
+                if (request.isForMainFrame()) {
+                    actions.setVisibility(View.VISIBLE);
+                    status.setText("网页未打开，请检查网络后重试");
+                    if (prewarming) pausePage();
+                    notifySettled();
+                }
             }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
-                if (request.isForMainFrame()) { actions.setVisibility(View.VISIBLE); status.setText("官方网页暂时不可用，请稍后重试"); }
+                if (request.isForMainFrame()) {
+                    actions.setVisibility(View.VISIBLE);
+                    status.setText("官方网页暂时不可用，请稍后重试");
+                    if (prewarming) pausePage();
+                    notifySettled();
+                }
             }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
                 actions.setVisibility(View.VISIBLE);
                 status.setText("安全连接验证失败，请检查网络或手机日期");
+                if (prewarming) pausePage();
+                notifySettled();
             }
             @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
                 if (web == view) {
@@ -414,6 +464,10 @@ final class PddPage extends LinearLayout {
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
                 String value = message.message();
+                if (value != null && value.startsWith("__HANDYCODE_PDD_GEOCODE__:")) {
+                    resolveStationCoords(value.substring("__HANDYCODE_PDD_GEOCODE__:".length()));
+                    return true;
+                }
                 if (web != null && isPackageUrl(web.getUrl()) && "__HANDYCODE_PDD_AUTH__:signed-in".equals(value)) {
                     sessionChanged.accept(true);
                     return true;
@@ -448,9 +502,118 @@ final class PddPage extends LinearLayout {
         }
     }
 
-    private byte[] adjustedBundle(String address) {
-        byte[] cached = cachedAssets.get(address);
+    private void resolveStationCoords(String payload) {
+        if (payload == null || destroyed) return;
+        String[] parts = payload.split("\t", 3);
+        if (parts.length < 1 || parts[0].isEmpty()) return;
+        final String code = parts[0];
+        final String detail = parts.length > 1 ? parts[1] : "";
+        final String name = parts.length > 2 ? parts[2] : "";
+        final Context appContext = getContext().getApplicationContext();
+        Thread t = new Thread(() -> {
+            double lng = 0;
+            double lat = 0;
+            try {
+                if (android.location.Geocoder.isPresent()) {
+                    android.location.Geocoder geocoder = new android.location.Geocoder(appContext, java.util.Locale.CHINA);
+                    String[] queries = new String[] {
+                        name.trim(),
+                        (name + " " + detail).trim(),
+                        (detail + " " + name).trim(),
+                        detail.trim()
+                    };
+                    for (String q : queries) {
+                        if (q.isEmpty()) continue;
+                        java.util.List<android.location.Address> list = geocoder.getFromLocationName(q, 1);
+                        if (list != null && !list.isEmpty()) {
+                            android.location.Address addr = list.get(0);
+                            if (addr != null && addr.hasLatitude() && addr.hasLongitude()) {
+                                lat = addr.getLatitude();
+                                lng = addr.getLongitude();
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            final double finalLng = lng;
+            final double finalLat = lat;
+            post(() -> {
+                if (destroyed || web == null) return;
+                String js = "window.__hcOnStationCoords&&window.__hcOnStationCoords("
+                    + org.json.JSONObject.quote(code) + "," + finalLng + "," + finalLat + ")";
+                web.evaluateJavascript(js, null);
+            });
+        }, "hc-pdd-geocode");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private static boolean isCssAsset(String raw) {
+        String path = android.net.Uri.parse(raw).getPath();
+        return path != null && path.endsWith(".css");
+    }
+
+    private java.io.File bundleCacheFile(String address, boolean patched) {
+        try {
+            java.io.File dir = new java.io.File(getContext().getCacheDir(), "pdd_bundles_v2");
+            if (!dir.exists() && !dir.mkdirs()) return null;
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            String key = patched
+                ? address + "|" + (compatibilityScript == null ? 0 : compatibilityScript.hashCode())
+                : "raw|" + address;
+            byte[] hash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : hash) hex.append(String.format(java.util.Locale.ROOT, "%02x", b));
+            return new java.io.File(dir, hex + (!patched && isCssAsset(address) ? ".css" : ".js"));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private byte[] readDiskBundle(String address, boolean patched) {
+        java.io.File file = bundleCacheFile(address, patched);
+        if (file == null || !file.isFile() || file.length() <= 0 || file.length() > 6 * 1024 * 1024) return null;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(file);
+             ByteArrayOutputStream out = new ByteArrayOutputStream((int) file.length())) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            return out.toByteArray();
+        } catch (java.io.IOException ignored) {
+            return null;
+        }
+    }
+
+    private void writeDiskBundle(String address, boolean patched, byte[] bytes) {
+        java.io.File file = bundleCacheFile(address, patched);
+        if (file == null || bytes == null || bytes.length == 0) return;
+        try {
+            java.io.File dir = file.getParentFile();
+            if (dir != null) {
+                java.io.File[] existing = dir.listFiles();
+                if (existing != null && existing.length >= 64) {
+                    for (java.io.File f : existing) f.delete();
+                }
+            }
+            java.io.File tmp = new java.io.File(file.getParentFile(), file.getName() + ".tmp");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                out.write(bytes);
+            }
+            if (!tmp.renameTo(file)) tmp.delete();
+        } catch (Exception ignored) {}
+    }
+
+    private byte[] adjustedBundle(String address, boolean patched) {
+        String memKey = patched ? address : "raw|" + address;
+        byte[] cached = cachedAssets.get(memKey);
         if (cached != null) return cached;
+        byte[] diskCached = readDiskBundle(address, patched);
+        if (diskCached != null) {
+            if (cachedAssets.size() >= 32) cachedAssets.clear();
+            cachedAssets.put(memKey, diskCached);
+            return diskCached;
+        }
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection)new URL(address).openConnection();
@@ -460,7 +623,8 @@ final class PddPage extends LinearLayout {
             connection.setRequestProperty("Accept-Encoding", "gzip");
             if (connection.getResponseCode() != 200) return null;
             String type = connection.getContentType();
-            if (type == null || !(type.contains("javascript") || type.contains("ecmascript"))) return null;
+            boolean expectCss = !patched && isCssAsset(address);
+            if (type == null || (expectCss ? !type.contains("css") : !(type.contains("javascript") || type.contains("ecmascript")))) return null;
             InputStream raw = connection.getInputStream();
             if ("gzip".equalsIgnoreCase(connection.getContentEncoding())) raw = new GZIPInputStream(raw);
             try (InputStream input = raw; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -471,20 +635,23 @@ final class PddPage extends LinearLayout {
                     output.write(buffer, 0, count);
                 }
                 byte[] bytes = output.toByteArray();
-                String refreshPart = UrlPolicy.pddRefreshPart(address);
-                if (refreshPart != null) {
-                    String patched = PddBundleAdapter.patch(refreshPart, new String(bytes, StandardCharsets.UTF_8));
-                    if (patched == null) return null;
-                    bytes = patched.getBytes(StandardCharsets.UTF_8);
-                } else {
-                    output.reset();
-                    output.write(compatibilityScript.getBytes(StandardCharsets.UTF_8));
-                    output.write('\n');
-                    output.write(bytes);
-                    bytes = output.toByteArray();
+                if (patched) {
+                    String refreshPart = UrlPolicy.pddRefreshPart(address);
+                    if (refreshPart != null) {
+                        String patchedSource = PddBundleAdapter.patch(refreshPart, new String(bytes, StandardCharsets.UTF_8));
+                        if (patchedSource == null) return null;
+                        bytes = patchedSource.getBytes(StandardCharsets.UTF_8);
+                    } else {
+                        output.reset();
+                        output.write(compatibilityScript.getBytes(StandardCharsets.UTF_8));
+                        output.write('\n');
+                        output.write(bytes);
+                        bytes = output.toByteArray();
+                    }
                 }
-                if (cachedAssets.size() >= 3) cachedAssets.clear();
-                cachedAssets.put(address, bytes);
+                if (cachedAssets.size() >= 32) cachedAssets.clear();
+                cachedAssets.put(memKey, bytes);
+                writeDiskBundle(address, patched, bytes);
                 return bytes;
             }
         } catch (java.io.IOException unavailable) {
@@ -531,10 +698,11 @@ final class PddPage extends LinearLayout {
 
     // Stop rebuilding cards on tab switches, while retaining the live WebView
     // and its compositor for an immediate, populated swipe preview.
-    void idlePage() { cover.setAnimating(false); setProjectionActive(false); }
+    void idlePage() { prewarming = false; cover.setAnimating(false); setProjectionActive(false); }
     void pausePage() { idlePage(); if (web != null) web.onPause(); }
     void resumePage(boolean active) {
-        cover.setAnimating(active);
+        if (active) prewarming = false;
+        cover.setAnimating(active && cover.getVisibility() == View.VISIBLE);
         if (web != null) web.onResume();
         setProjectionActive(active);
     }

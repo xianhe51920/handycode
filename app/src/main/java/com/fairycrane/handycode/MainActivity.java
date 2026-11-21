@@ -146,6 +146,11 @@ public final class MainActivity extends Activity {
     private boolean phoneAddPageStarted;
     private boolean popupInlineWorkflow;
     private long lastBlockedNotice = 0;
+    private volatile boolean taobaoForceRawEntry, servedDirectCombined;
+    private static final long PREWARM_FALLBACK_DELAY_MS = 2000L, PREWARM_STAGGER_MS = 450L;
+    private final Handler prewarmHandler = new Handler(Looper.getMainLooper());
+    private boolean prewarmArmed;
+    private final Runnable prewarmNextRunnable = this::prewarmNextTab;
 
     private final SiteDataClearer.Observer logoutListener = new SiteDataClearer.Observer() {
         @Override public void onStarted(int page) {
@@ -168,6 +173,8 @@ public final class MainActivity extends Activity {
                 resetTaobaoLoad();
                 combinedMarkup = null;
                 combinedDisplayed = false;
+                servedDirectCombined = false;
+                taobaoForceRawEntry = false;
                 closePopup();
                 if (browser != null) {
                     browser.stopLoading();
@@ -179,6 +186,8 @@ public final class MainActivity extends Activity {
                 }
                 hideError();
             }
+            prewarmArmed = false;
+            prewarmHandler.removeCallbacks(prewarmNextRunnable);
             stopShimmer();
             preparePreview();
             renderSwitchPosition();
@@ -353,6 +362,7 @@ public final class MainActivity extends Activity {
         if (page >= 0 && page < PAGE_COUNT) {
             signedIn[page] = value;
             if (page == TAB_TAOBAO) {
+                if (value) taobaoForceRawEntry = false;
                 setTaobaoLoginRequired(!value);
                 if (combinedDisplayed && browser != null) {
                     browser.evaluateJavascript("document.getElementById('hc-logout')?.toggleAttribute('hidden',"
@@ -370,6 +380,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        WebAssets.preload(getAssets());
         android.content.SharedPreferences ui = getSharedPreferences(PREF_UI, MODE_PRIVATE);
         detectAppUpgrade(ui);
         themeMode = ui.getInt(KEY_THEME_MODE, 0);
@@ -589,11 +600,14 @@ public final class MainActivity extends Activity {
         pinduoduoFrame = new FrameLayout(this);
         pddPage = new PddPage(this, this::openPinduoduoIdentity, value -> setSignedIn(TAB_PDD, value),
             () -> logoutPage(TAB_PDD));
+        pddPage.setOnSettled(() -> onTabSettled(TAB_PDD));
         pinduoduoFrame.addView(pddPage, new FrameLayout.LayoutParams(-1, -1));
         viewport.addView(pinduoduoFrame, new FrameLayout.LayoutParams(-1, -1));
         jdPage = new JdPage(this, value -> setSignedIn(TAB_JD, value), () -> logoutPage(TAB_JD));
+        jdPage.setOnSettled(() -> onTabSettled(TAB_JD));
         viewport.addView(jdPage, new FrameLayout.LayoutParams(-1, -1));
         cainiaoPage = new CainiaoPage(this, () -> selectPage(TAB_TAOBAO), () -> setSignedIn(TAB_TAOBAO, false));
+        cainiaoPage.setOnSettled(() -> onTabSettled(TAB_CAINIAO));
         cainiaoPage.setLoginRequired(getSharedPreferences(PREF_UI, MODE_PRIVATE).getBoolean(KEY_TAOBAO_LOGIN_REQUIRED, false));
         viewport.addView(cainiaoPage, new FrameLayout.LayoutParams(-1, -1));
         platformPages = new View[] {cainiaoPage, browserFrame, pinduoduoFrame, jdPage};
@@ -759,8 +773,9 @@ public final class MainActivity extends Activity {
         if (isFinishing() || isDestroyed() || generation != combineGeneration || browser != view || combinedMarkup == null) return;
         String ready = "(function(){var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');"
             + "if(!a||!b||!window.HandyPickupMotion)return null;"
+            + "var r=!!(a.dataset.ready&&b.dataset.ready);if(r){HandyPickupMotion.cancel(a);HandyPickupMotion.cancel(b);}"
             + "return {width:innerWidth,identity:a.getBoundingClientRect().height,parcels:b.getBoundingClientRect().height,"
-            + "heading:document.querySelector('.hc-heading').getBoundingClientRect().height,ready:!!(a.dataset.ready&&b.dataset.ready),"
+            + "heading:document.querySelector('.hc-heading').getBoundingClientRect().height,ready:r,"
             + "settled:HandyPickupMotion.isSettled(a)&&HandyPickupMotion.isSettled(b)};})()";
         view.evaluateJavascript(ready, complete -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
@@ -776,10 +791,19 @@ public final class MainActivity extends Activity {
                         @Override public void onComplete(long requestId) {
                             if (generation != combineGeneration || browser != view || token != transitionGeneration
                                     || isFinishing() || isDestroyed()) return;
+                            if (selected != TAB_TAOBAO) {
+                                stopTaobaoDeadline();
+                                hideTransition(false);
+                                view.onPause();
+                                onTabSettled(TAB_TAOBAO);
+                                return;
+                            }
                             transitionPanel.morphTo((float)geometry.optDouble("width"), (float)geometry.optDouble("identity"),
                                 (float)geometry.optDouble("parcels"), (float)geometry.optDouble("heading"), () -> {
-                                    if (generation == combineGeneration && browser == view && token == transitionGeneration)
+                                    if (generation == combineGeneration && browser == view && token == transitionGeneration) {
                                         hideTransition(true);
+                                        onTabSettled(TAB_TAOBAO);
+                                    }
                                 });
                         }
                     });
@@ -787,8 +811,12 @@ public final class MainActivity extends Activity {
             } catch (org.json.JSONException notReady) { /* The merged document is still being prepared. */ }
             if (transitionRevealQueued || SystemClock.elapsedRealtime() - transitionStarted >= 12000) {
                 stopTaobaoDeadline();
-                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) hideTransition(true);
-            } else view.postDelayed(() -> waitForMergedPresentation(view, generation), 200);
+                if (!transitionRevealQueued && transitionPanel.getVisibility() == View.VISIBLE) {
+                    hideTransition(selected == TAB_TAOBAO);
+                    if (selected != TAB_TAOBAO) view.onPause();
+                    onTabSettled(TAB_TAOBAO);
+                }
+            } else view.postDelayed(() -> waitForMergedPresentation(view, generation), 60);
         });
     }
 
@@ -1024,6 +1052,9 @@ public final class MainActivity extends Activity {
         }
         if (selected != TAB_JD) jdPage.pausePage();
         if (selected != TAB_CAINIAO) cainiaoPage.pausePage();
+        if (selected != TAB_TAOBAO && browser != null && (combinedDisplayed || taobaoLoginVisible || taobaoLoadFailed)) {
+            browser.onPause();
+        }
         try {
             if (selected == TAB_TAOBAO) {
                 pddPage.idlePage();
@@ -1047,6 +1078,7 @@ public final class MainActivity extends Activity {
                 pddPage.showPage();
                 opened[TAB_PDD] = true;
             }
+            armPrewarmFallback();
         } catch (RuntimeException error) {
             new AlertDialog.Builder(this).setTitle("无法启动网页组件")
                 .setMessage("请在手机系统或应用商店更新 Android System WebView / Chrome 后重试。")
@@ -1084,6 +1116,7 @@ public final class MainActivity extends Activity {
                 .replace("@@ADD_PACKAGE_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_ADD_PACKAGE_ENTRY))
                 .replace("@@PARCELS_URL@@", android.text.TextUtils.htmlEncode(UrlPolicy.TAOBAO_PARCELS_ENTRY));
             combinedDisplayed = false;
+            servedDirectCombined = false;
             showTransition();
             browser.loadUrl(UrlPolicy.TAOBAO_ENTRY);
         } catch (java.io.IOException error) {
@@ -1104,6 +1137,10 @@ public final class MainActivity extends Activity {
     private void waitForOfficialIdentity(WebView view, final int generation) {
         if (isFinishing() || isDestroyed() || generation != combineGeneration
                 || browser != view || combinedMarkup == null || !UrlPolicy.isAllowed(view.getUrl())) return;
+        if (sameIdentityPage(view.getUrl())) {
+            applyCombined(view, generation);
+            return;
+        }
         view.evaluateJavascript(officialIdentityScript + "\n" + combinedGateScript, ready -> {
             if (generation != combineGeneration || browser != view || isFinishing() || isDestroyed()) return;
             if ("true".equals(ready) && sameIdentityPage(view.getUrl())) applyCombined(view, generation);
@@ -1113,6 +1150,10 @@ public final class MainActivity extends Activity {
 
     private void applyCombined(WebView view, final int generation) {
         if (combinedMarkup == null || !sameIdentityPage(view.getUrl())) return;
+        if (needsFreshTaobaoLoad) {
+            needsFreshTaobaoLoad = false;
+            view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+        }
         String script = officialIdentityScript + "\n(function(){if(document.getElementById('handycode-merged'))return true;"
             + "if(!(" + combinedGateScript + "))return false;"
             + "document.open();document.write(" + org.json.JSONObject.quote(combinedMarkup)
@@ -1126,6 +1167,12 @@ public final class MainActivity extends Activity {
             if (combinedDisplayed) waitForMergedPresentation(view, generation);
             if (!combinedDisplayed) retryOfficialIdentity(view, generation, false);
         });
+    }
+
+    private void prewarmTaobaoParcels(WebView view) {
+        view.evaluateJavascript("(function(){if(document.getElementById('hc-parcels-prefetch')||!document.head)return;"
+            + "var l=document.createElement('link');l.id='hc-parcels-prefetch';l.rel='prefetch';"
+            + "l.href=" + org.json.JSONObject.quote(UrlPolicy.TAOBAO_PARCELS_ENTRY) + ";document.head.appendChild(l);})()", null);
     }
 
     private void refreshAfterLogin() {
@@ -1165,6 +1212,31 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         TaobaoLoginTheme.apply(web, isDark());
         web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (popup || view != browser) return null;
+                String url = request.getUrl().toString();
+                if (request.isForMainFrame()) {
+                    if (!cainiaoPage.isLoginRequired() && !taobaoForceRawEntry && !needsFreshTaobaoLoad
+                            && combinedMarkup != null && "GET".equals(request.getMethod())
+                            && UrlPolicy.isTaobaoIdentityEntry(url)) {
+                        servedDirectCombined = true;
+                        java.util.Map<String, String> headers = new java.util.HashMap<>();
+                        headers.put("Cache-Control", "no-store");
+                        return new WebResourceResponse("text/html", "UTF-8", 200, "OK", headers,
+                            new java.io.ByteArrayInputStream(combinedMarkup.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                    }
+                    servedDirectCombined = false;
+                } else if (servedDirectCombined && !taobaoForceRawEntry) {
+                    java.util.Map<String, String> reqHeaders = request.getRequestHeaders();
+                    String dest = reqHeaders != null ? reqHeaders.get("Sec-Fetch-Dest") : null;
+                    String accept = reqHeaders != null ? reqHeaders.get("Accept") : null;
+                    boolean docRequest = "iframe".equalsIgnoreCase(dest) || (accept != null && accept.contains("text/html"));
+                    if (docRequest && UrlPolicy.isTaobaoAuthUrl(url)) {
+                        view.post(() -> fallbackToRawTaobaoEntry(view));
+                    }
+                }
+                return null;
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (UrlPolicy.LOCAL_LOGOUT_ACTION.equals(request.getUrl().toString())) {
                     if (request.isForMainFrame() && request.hasGesture() && view == browser && combinedDisplayed) {
@@ -1228,12 +1300,19 @@ public final class MainActivity extends Activity {
                 } else waitForPopupIdentity(view, ++popupGeneration);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
+                if (!popup && needsFreshTaobaoLoad) {
+                    needsFreshTaobaoLoad = false;
+                    view.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+                }
                 TaobaoLoginTheme.apply(view, isDark());
                 prepareInlinePage(view, url);
                 if (!popup || !popupInlineWorkflow) installPresentationObserver(view);
                 if (!popup && !taobaoLoadFailed) {
                     if (UrlPolicy.isTaobaoAuthUrl(url)) revealOfficialLogin(view);
-                    else if (!combinedDisplayed && !taobaoLoginVisible) renderCombined(view, url);
+                    else if (!combinedDisplayed && !taobaoLoginVisible) {
+                        if (!servedDirectCombined && sameIdentityPage(url)) prewarmTaobaoParcels(view);
+                        renderCombined(view, url);
+                    }
                 }
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
@@ -1271,8 +1350,10 @@ public final class MainActivity extends Activity {
                     if ("login".equals(phase)) setSignedIn(TAB_TAOBAO, false);
                     else if ("ready".equals(phase) || "merged".equals(phase)) setSignedIn(TAB_TAOBAO, true);
                 } else if (!taobaoLoadFailed) {
-                    if ("login".equals(phase)) revealOfficialLogin(web);
-                    else if (!combinedDisplayed && ("loading".equals(phase) || "identity-loading".equals(phase)
+                    if ("login".equals(phase)) {
+                        if (servedDirectCombined && !taobaoForceRawEntry) fallbackToRawTaobaoEntry(web);
+                        else revealOfficialLogin(web);
+                    } else if (!combinedDisplayed && ("loading".equals(phase) || "identity-loading".equals(phase)
                             || "ready".equals(phase))) {
                         taobaoLoginVisible = false;
                         if ("ready".equals(phase)) setSignedIn(TAB_TAOBAO, true);
@@ -1437,9 +1518,9 @@ public final class MainActivity extends Activity {
                     if (popup ? generation != popupGeneration || view != popupView
                             : generation != combineGeneration || view != browser || combinedDisplayed) return;
                     if (!popup && "\"login\"".equals(status)) revealOfficialLogin(view);
-                    view.postDelayed(next, 650);
+                    view.postDelayed(next, 180);
                 });
-        } else view.postDelayed(next, 650);
+        } else view.postDelayed(next, 180);
     }
 
     private void installPresentationObserver(WebView view) {
@@ -1447,8 +1528,20 @@ public final class MainActivity extends Activity {
         view.evaluateJavascript(taobaoLoginChromeScript + "\n" + officialIdentityScript + "\nHandyCodeOfficialIdentity.watch(document)", null);
     }
 
+    private void fallbackToRawTaobaoEntry(WebView view) {
+        if (browser != view || !servedDirectCombined || taobaoForceRawEntry || isFinishing() || isDestroyed()) return;
+        servedDirectCombined = false;
+        taobaoForceRawEntry = true;
+        setSignedIn(TAB_TAOBAO, false);
+        loadCombined();
+    }
+
     private void revealOfficialLogin(WebView view) {
         if (browser != view || taobaoLoadFailed) return;
+        if (servedDirectCombined && !taobaoForceRawEntry) {
+            fallbackToRawTaobaoEntry(view);
+            return;
+        }
         if (!taobaoLoginVisible) {
             taobaoLoginVisible = true;
             // Discovering an iframe or auth page does not mean its themed controls have painted.
@@ -1501,6 +1594,8 @@ public final class MainActivity extends Activity {
                             && !taobaoLoadFailed && !combinedDisplayed && !isFinishing() && !isDestroyed()) {
                         stopTaobaoDeadline();
                         hideTransition(false);
+                        if (selected != TAB_TAOBAO) view.onPause();
+                        onTabSettled(TAB_TAOBAO);
                     }
                 }
             });
@@ -1525,6 +1620,41 @@ public final class MainActivity extends Activity {
         hideTransition(false);
         showError(title, detail, offerIdentityLink);
         updateNavigationEnabled();
+        if (selected != TAB_TAOBAO && browser != null) browser.onPause();
+        onTabSettled(TAB_TAOBAO);
+    }
+
+    private void armPrewarmFallback() {
+        if (prewarmArmed || !activityResumed || SiteDataClearer.isBusy() || isFinishing() || isDestroyed()) return;
+        prewarmArmed = true;
+        prewarmHandler.removeCallbacks(prewarmNextRunnable);
+        prewarmHandler.postDelayed(prewarmNextRunnable, PREWARM_FALLBACK_DELAY_MS);
+    }
+
+    private void onTabSettled(int tab) {
+        if (!activityResumed || SiteDataClearer.isBusy() || isFinishing() || isDestroyed()) return;
+        if (tab == selected) {
+            prewarmArmed = true;
+            prewarmHandler.removeCallbacks(prewarmNextRunnable);
+            prewarmHandler.postDelayed(prewarmNextRunnable, 150L);
+        }
+    }
+
+    private void prewarmNextTab() {
+        if (!activityResumed || SiteDataClearer.isBusy() || isFinishing() || isDestroyed()) return;
+        int[] order = {TAB_TAOBAO, TAB_PDD, TAB_CAINIAO, TAB_JD};
+        for (int tab : order) {
+            if (tab == selected || opened[tab]) continue;
+            if ((tab == TAB_TAOBAO || tab == TAB_CAINIAO) && cainiaoPage.isLoginRequired()) continue;
+            opened[tab] = true;
+            renderSwitchPosition();
+            if (tab == TAB_TAOBAO) ensureBrowser();
+            else if (tab == TAB_PDD) pddPage.prewarmPage();
+            else if (tab == TAB_CAINIAO) cainiaoPage.prewarmPage();
+            else if (tab == TAB_JD) jdPage.prewarmPage();
+            prewarmHandler.postDelayed(prewarmNextRunnable, PREWARM_STAGGER_MS);
+            return;
+        }
     }
 
     private void recoverBrowser(WebView view, boolean popup) {
@@ -1631,6 +1761,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onPause() {
         activityResumed = false;
+        prewarmHandler.removeCallbacks(prewarmNextRunnable);
         themePreview = false;
         if (themeTransition != null) themeTransition.cancel();
         updateTaobaoDeadline();
@@ -1657,7 +1788,9 @@ public final class MainActivity extends Activity {
         scanHandler.post(scanWatch);
         applyTheme();
         if (SiteDataClearer.isBusy()) { updateNavigationEnabled(); return; }
-        if (browser != null) browser.onResume();
+        if (browser != null && (selected == TAB_TAOBAO || (!combinedDisplayed && !taobaoLoginVisible && !taobaoLoadFailed))) {
+            browser.onResume();
+        }
         if (popupView != null) popupView.onResume();
         if (phoneAddView != null) phoneAddView.onResume();
         pddPage.resumePage(selected == TAB_PDD);
@@ -1665,8 +1798,12 @@ public final class MainActivity extends Activity {
         if (selected == TAB_CAINIAO && opened[TAB_CAINIAO]) cainiaoPage.showPage();
         if (!opened[selected]) { completeSelection(selected); return; }
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
+        prewarmHandler.removeCallbacks(prewarmNextRunnable);
+        if (!prewarmArmed) armPrewarmFallback();
+        else prewarmHandler.postDelayed(prewarmNextRunnable, PREWARM_STAGGER_MS);
     }
     @Override protected void onDestroy() {
+        prewarmHandler.removeCallbacks(prewarmNextRunnable);
         if (themeTransition != null) themeTransition.cancel();
         if (themeButton != null) themeButton.destroyRenderer();
         scanHandler.removeCallbacks(scanWatch);

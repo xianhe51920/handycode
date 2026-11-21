@@ -65,7 +65,17 @@ final class JdPage extends FrameLayout {
     private final View divider;
     private final Skeleton skeleton;
     private WebView web;
-    private boolean dark, paused = true, destroyed, polling, inFlight, loading = true;
+    private boolean dark, paused = true, destroyed, prewarming, polling, inFlight, loading = true;
+    private Runnable onSettled;
+
+    void setOnSettled(Runnable listener) { onSettled = listener; }
+
+    private void checkSettled() {
+        if (loading || (identity.isLoading() && !loginVisible)) return;
+        if (prewarming) pausePage();
+        Runnable listener = onSettled;
+        if (listener != null) listener.run();
+    }
     private boolean loginVisible;
     private boolean orderSignedIn, identitySignedIn;
     private boolean verificationVisible;
@@ -164,6 +174,7 @@ final class JdPage extends FrameLayout {
         session.accept(orderSignedIn || identitySignedIn);
         if (!wasSignedIn && identitySignedIn && loginVisible) reload();
         updatePresentation();
+        checkSettled();
     }
 
     private void orderSession(boolean value) {
@@ -233,9 +244,25 @@ final class JdPage extends FrameLayout {
 
     void showPage() {
         if (destroyed) return;
+        prewarming = false;
         paused = false;
         identity.resumePage();
         if (web == null) createWeb();
+        if (web != null) {
+            web.onResume();
+            sample();
+            schedule();
+            if (loading) armTimeout();
+        }
+        updatePresentation();
+    }
+
+    void prewarmPage() {
+        if (destroyed || web != null || !paused) return;
+        prewarming = true;
+        paused = false;
+        identity.prewarmPage();
+        createWeb();
         if (web != null) {
             web.onResume();
             sample();
@@ -292,7 +319,10 @@ final class JdPage extends FrameLayout {
                 sample();
             }
             @Override public void onLoadResource(WebView view, String url) {
-                if (!paused && SystemClock.elapsedRealtime() - lastProbe >= 250) sample();
+                if (!paused && SystemClock.elapsedRealtime() - lastProbe >= 120) sample();
+            }
+            @Override public void onPageCommitVisible(WebView view, String url) {
+                if (JdUrlPolicy.allowed(url)) sample();
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!JdUrlPolicy.allowed(url)) return;
@@ -333,7 +363,7 @@ final class JdPage extends FrameLayout {
     private void schedule() {
         if (!polling && !paused && !destroyed) {
             polling = true;
-            postDelayed(tick, 1000);
+            postDelayed(tick, loading ? 200 : 1000);
         }
     }
 
@@ -378,10 +408,12 @@ final class JdPage extends FrameLayout {
                     loading = false;
                     removeCallbacks(timeout);
                     updatePresentation();
+                    checkSettled();
                     return;
                 }
                 if (!data.optBoolean("ready") && data.optString("problem").isEmpty()) return;
-                long hold = loading ? Math.max(0, MIN_REFRESH_MS - (SystemClock.elapsedRealtime() - loadingStarted)) : 0;
+                long hold = loading && !lastSnapshot.isEmpty()
+                    ? Math.max(0, MIN_REFRESH_MS - (SystemClock.elapsedRealtime() - loadingStarted)) : 0;
                 if (hold > 0) {
                     inFlight = true;
                     postDelayed(() -> {
@@ -413,6 +445,7 @@ final class JdPage extends FrameLayout {
         removeCallbacks(timeout);
         if (changed) renderBody(true);
         updatePresentation();
+        checkSettled();
     }
 
     private void fail(String message) {
@@ -424,6 +457,7 @@ final class JdPage extends FrameLayout {
         removeCallbacks(timeout);
         renderBody(true);
         updatePresentation();
+        checkSettled();
     }
 
     private void updatePresentation() {
@@ -444,12 +478,12 @@ final class JdPage extends FrameLayout {
         }
         results.setVisibility(showWeb || identityLogin ? GONE : VISIBLE);
         logout.setVisibility(!showWeb && !identityLogin && (orderSignedIn || identitySignedIn) ? VISIBLE : GONE);
-        skeleton.setAnimating(loading && !paused && !showWeb);
+        skeleton.setAnimating(!prewarming && loading && !paused && !showWeb);
     }
 
     private void renderBody(boolean animate) {
         TransitionManager.endTransitions(card);
-        if (animate && !paused && results.isShown() && ValueAnimator.areAnimatorsEnabled()) {
+        if (animate && !paused && !prewarming && results.isShown() && ValueAnimator.areAnimatorsEnabled()) {
             AutoTransition transition = new AutoTransition();
             transition.setDuration(140);
             transition.excludeTarget(heading, true);
@@ -713,6 +747,7 @@ final class JdPage extends FrameLayout {
 
     void pausePage() {
         paused = true;
+        prewarming = false;
         removeCallbacks(tick);
         removeCallbacks(timeout);
         polling = false;

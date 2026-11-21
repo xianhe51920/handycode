@@ -6,10 +6,10 @@
 
 HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taobao and Pinduoduo pickup information, and JD identity codes and pickup codes available in JD orders.
 
-最新正式版 **0.8.5**，支持 Android 8.0（API 26）及以上，目标 API 35。
+最新正式版 **0.8.6**，支持 Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载最新 APK 与查看更新说明](https://github.com/xianhe51920/handycode/releases/latest)
-- [0.8.5 更新说明](docs/releases/0.8.5.md)
+- [0.8.6 更新说明](docs/releases/0.8.6.md)
 - [版本、包大小及签名证书摘要](release.json)
 
 安装包随 GitHub Releases 分发，仓库不跟踪构建产物。下载站是独立项目，不随本仓库发布。
@@ -25,7 +25,7 @@ HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taoba
 
 四个平台的入口固定为「菜鸟 → 淘宝 → 拼多多 → 京东」。身份码、包裹各自刷新；支持点击和横向滑动切换、记忆上次标签、玻璃昼夜开关、可见条码自动提亮，以及卡片下方的当前平台退出入口。
 
-0.8.5 修复覆盖安装后淘宝页面因旧 WebView HTTP 缓存或记忆账号/验证页主题门禁导致的持续加载超时问题，并在超时页提供仅重置淘宝登录态的恢复入口。详情和验证边界见[更新说明](docs/releases/0.8.5.md)。
+0.8.6 修复拼多多「添加包裹」跳转与定位校验问题、精简空状态提示卡片，并针对四平台首屏加载与跨标签页切换进行全面提速（拼多多静态资源持久化缓存、已登录淘宝消除双重加载、前台就绪后后台错峰预热）。详情和验证边界见[更新说明](docs/releases/0.8.6.md)。
 
 ## 免责声明
 

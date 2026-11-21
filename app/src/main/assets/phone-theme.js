@@ -52,9 +52,9 @@ html[data-hc-phone-provider="pdd"][data-hc-phone-theme="dark"] .bind-new-contrac
 
 html[data-hc-package-form="pdd"] :is(.history-phone-list-wrap,.strategy-list-container,.notice) {display:none!important}
 html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] [class*="add-package-package__"] {background:#0f1218!important;color:#eceff4!important;min-height:100vh}
-html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.selected-station-container,.text-area,.event-modal-content,.event-modal-view-container-center,.query-waybill-modal-container,.rm-modal-content) {background:#181c24!important;color:#eceff4!important;border-color:#303744!important}
-html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.name,.action,.query-waybill-title,[class*="station-name"],.event-modal-title) {color:#eceff4!important}
-html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.address,.event-modal-desc,.event-modal-content-text) {color:#b3bdcc!important}
+html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.selected-station-container,.text-area,.event-modal-content,.event-modal-view-container-center,.query-waybill-modal-container,.query-waybill-result-modal-container,.query-multi-waybill-modal-container,.preffix-search-text-modal-container,.rm-modal-content) {background:#181c24!important;color:#eceff4!important;border-color:#303744!important}
+html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.name,.action,.query-waybill-title,.query-waybill-result-title,.query-multi-waybill-title,.preffix-search-text-title,[class*="station-name"],.event-modal-title) {color:#eceff4!important}
+html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(.address,.event-modal-desc,.event-modal-content-text,.query-waybill-result-content,.query-multi-waybill-content,.preffix-search-text-content) {color:#b3bdcc!important}
 html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] :is(textarea,input) {background:transparent!important;color:#eceff4!important;caret-color:#ff8e6b}
 html[data-hc-package-form="pdd"][data-hc-phone-theme="dark"] textarea::placeholder {color:#949eb0!important;opacity:1}
 `;

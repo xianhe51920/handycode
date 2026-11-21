@@ -100,8 +100,14 @@
         if (!doc.documentElement || !global.MutationObserver) return;
         var previous = watchers.get(doc);
         if (previous && previous.root === doc.documentElement) return;
-        if (previous) previous.observer.disconnect();
-        var state = { root: doc.documentElement, last: null, queued: false };
+        if (previous) {
+            previous.observer.disconnect();
+            if (doc.removeEventListener && previous.onLoad) doc.removeEventListener('load', previous.onLoad, true);
+        }
+        var state = { root: doc.documentElement, last: null, queued: false, onLoad: null };
+        function schedule() {
+            if (!state.queued) { state.queued = true; setTimeout(notify, 0); }
+        }
         function notify() {
             state.queued = false;
             var current = phase(doc);
@@ -111,12 +117,15 @@
                 // layer. No page text, URLs, form values or account data.
                 console.info('__HANDYCODE_PHASE__:' + current);
             }
-            if (current === 'merged') state.observer.disconnect();
+            if (current === 'merged') {
+                state.observer.disconnect();
+                if (doc.removeEventListener && state.onLoad) doc.removeEventListener('load', state.onLoad, true);
+            }
         }
-        state.observer = new MutationObserver(function () {
-            if (!state.queued) { state.queued = true; setTimeout(notify, 0); }
-        });
+        state.onLoad = schedule;
+        state.observer = new MutationObserver(schedule);
         state.observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true });
+        if (doc.addEventListener) doc.addEventListener('load', schedule, true);
         watchers.set(doc, state);
         notify();
     }

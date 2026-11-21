@@ -37,7 +37,7 @@ final class JdIdentityCard extends LinearLayout {
     private final JdPage.Skeleton skeleton;
     private WebView web;
     private String script = "", loginTheme = "", error = "", presentation = "";
-    private boolean dark, active, destroyed, inFlight, loginRequired, loginOpen, loginReady, signedIn, loading = true;
+    private boolean dark, active, prewarming, destroyed, inFlight, loginRequired, loginOpen, loginReady, signedIn, loading = true;
     private boolean verification, codeShown;
     private int generation, contentHeight;
     private long deadline, loadingStarted;
@@ -46,7 +46,7 @@ final class JdIdentityCard extends LinearLayout {
             if (!active || destroyed) return;
             sample();
             removeCallbacks(this);
-            postDelayed(this, 400);
+            postDelayed(this, loading ? 160 : 450);
         }
     };
 
@@ -115,6 +115,7 @@ final class JdIdentityCard extends LinearLayout {
     }
     boolean wantsLogin() { return loginOpen; }
     boolean isSignedIn() { return signedIn; }
+    boolean isLoading() { return loading; }
     boolean blocksPageSwipe() { return loginOpen && verification; }
 
     void setDark(boolean value) {
@@ -141,8 +142,20 @@ final class JdIdentityCard extends LinearLayout {
 
     void resumePage() {
         if (destroyed) return;
+        prewarming = false;
         active = true;
         if (web == null && !script.isEmpty()) createWeb();
+        if (web != null) web.onResume();
+        removeCallbacks(tick);
+        post(tick);
+        present();
+    }
+
+    void prewarmPage() {
+        if (destroyed || web != null) return;
+        prewarming = true;
+        active = true;
+        if (!script.isEmpty()) createWeb();
         if (web != null) web.onResume();
         removeCallbacks(tick);
         post(tick);
@@ -193,6 +206,7 @@ final class JdIdentityCard extends LinearLayout {
                 loading = true; error = ""; loadingStarted = SystemClock.elapsedRealtime(); deadline = loadingStarted + 18000;
                 present(); sample();
             }
+            @Override public void onPageCommitVisible(WebView view, String url) { sample(); }
             @Override public void onPageFinished(WebView view, String url) { CookieManager.getInstance().flush(); sample(); }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError problem) {
                 handler.cancel(); fail("身份码安全连接验证失败，请检查网络或手机日期。");
@@ -256,7 +270,8 @@ final class JdIdentityCard extends LinearLayout {
                         loading = true; loadingStarted = SystemClock.elapsedRealtime(); deadline = loadingStarted + 18000; present();
                     }
                     if (data.optBoolean("ready") && !data.optBoolean("refreshing")) {
-                        long hold = loading ? Math.max(0, JdPage.MIN_REFRESH_MS - (SystemClock.elapsedRealtime() - loadingStarted)) : 0;
+                        long hold = loading && codeShown
+                            ? Math.max(0, JdPage.MIN_REFRESH_MS - (SystemClock.elapsedRealtime() - loadingStarted)) : 0;
                         if (hold > 0) {
                             inFlight = true;
                             postDelayed(() -> {
@@ -283,7 +298,7 @@ final class JdIdentityCard extends LinearLayout {
     private void present() {
         boolean showLogin = loginOpen && loginReady;
         boolean showCode = signedIn && !loginRequired && !loading && error.isEmpty();
-        String next = loginOpen + ":" + showLogin + ":" + showCode + ":" + loading + ":" + loginRequired + ":" + error + ":" + dark + ":" + active;
+        String next = loginOpen + ":" + showLogin + ":" + showCode + ":" + loading + ":" + loginRequired + ":" + error + ":" + dark + ":" + active + ":" + prewarming;
         if (next.equals(presentation)) return;
         presentation = next;
         heading.setVisibility(loginOpen ? GONE : VISIBLE);
@@ -294,17 +309,18 @@ final class JdIdentityCard extends LinearLayout {
         refresh.setTextColor(loading ? AppTheme.muted(dark) : AppTheme.accentText(dark));
         if (web != null) {
             web.animate().cancel();
-            web.setAlpha(showCode && !codeShown && active ? 0f : 1f);
+            boolean fadeIn = showCode && !codeShown && active && !prewarming;
+            web.setAlpha(fadeIn ? 0f : 1f);
             web.setVisibility(showLogin || showCode ? VISIBLE : INVISIBLE);
             web.setImportantForAccessibility(showLogin || showCode ? IMPORTANT_FOR_ACCESSIBILITY_AUTO : IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            if (showCode && !codeShown && active) web.animate().alpha(1f).setDuration(200).start();
+            if (fadeIn) web.animate().alpha(1f).setDuration(200).start();
         }
         codeShown = showCode;
         boolean showNotice = !loading && !showLogin && !showCode;
         notice.setVisibility(showNotice ? VISIBLE : GONE);
         notice.setText(loginRequired ? "请在京东官方页面登录身份码\n点击继续登录" : error);
         skeleton.setVisibility(loading ? VISIBLE : GONE);
-        skeleton.setAnimating(active && loading);
+        skeleton.setAnimating(active && loading && !prewarming);
     }
 
     private void reload() {
@@ -349,7 +365,7 @@ final class JdIdentityCard extends LinearLayout {
         return true;
     }
 
-    void pausePage() { active = false; removeCallbacks(tick); skeleton.setAnimating(false); if (web != null) web.onPause(); }
+    void pausePage() { active = false; prewarming = false; removeCallbacks(tick); skeleton.setAnimating(false); if (web != null) web.onPause(); }
     void resetSessionView() {
         pausePage(); generation++; inFlight = false; signedIn = false; loginRequired = false; loginOpen = false; loginReady = false; loading = true; error = "";
         if (web != null) { web.stopLoading(); web.setWebViewClient(new WebViewClient()); content.removeView(web); web.destroy(); web = null; }

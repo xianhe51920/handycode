@@ -27,6 +27,25 @@ public final class PddUrlPolicyTest {
             expect(true, UrlPolicy.pddRefreshPart(invalid) == null);
         for (String url : new String[]{"https://pfile.pddpic.com.evil.example/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","http://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","https://name@pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/package-abc.js","https://pfile.pddpic.com/other/_app-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js/extra"})
             expect(false, UrlPolicy.isPddAppBundle(url));
+        for (String url : new String[]{
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-4556c45dd113b893.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/mdkd/package-abc123.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/commons.9f1e2d3c.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/css/9f1e2d3c4b5a6789.css",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/css/styles-9f1e2d3c.css"})
+            expect(true, UrlPolicy.isPddImmutableStaticAsset(url));
+        for (String url : new String[]{
+                null,
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-21fd7eb3eb3caac5.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-91966cd87947ff3c.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8905-86d1ed3163cf59c9.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5709-3b78309922cfea15.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/app.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/../secret-abc123.js",
+                "https://pfile.pddpic.com.evil.example/mdkd/mdkd/_next/static/chunks/framework-abc123.js",
+                "http://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-abc123.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-abc123.js/extra"})
+            expect(false, UrlPolicy.isPddImmutableStaticAsset(url));
         System.out.println("PASS: " + checked + " PDD navigation / public-bundle scope cases");
     }
 }

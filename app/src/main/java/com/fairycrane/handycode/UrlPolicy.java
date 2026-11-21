@@ -72,6 +72,15 @@ public final class UrlPolicy {
         return null;
     }
 
+    public static boolean isPddImmutableStaticAsset(String raw) {
+        URI uri = httpsUri(raw);
+        if (uri == null || !"pfile.pddpic.com".equalsIgnoreCase(uri.getHost()) || uri.getPath() == null) return false;
+        String path = uri.getPath();
+        if (path.contains("..") || isPddAppBundle(raw) || pddRefreshPart(raw) != null) return false;
+        return path.matches("/mdkd/mdkd/_next/static/chunks/.+(?:[-.])[0-9a-f]+\\.js")
+            || path.matches("/mdkd/mdkd/_next/static/css/(?:.+[-.])?[0-9a-f]+\\.css");
+    }
+
     public static boolean isTaobaoIdentityEntry(String raw) {
         URI uri = httpsUri(raw);
         if (uri == null || !isAllowed(raw)) return false;

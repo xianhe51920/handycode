@@ -39,6 +39,61 @@ for(const unchanged of ['https://api.pinduoduo.com.evil.example/api/x','https://
 const patchedOpen=f.context.XMLHttpRequest.prototype.open;
 runInNewContext(source,f.context);
 assert.equal(f.context.XMLHttpRequest.prototype.open,patchedOpen,'Re-injection does not wrap twice');
+const chunkModules = {
+ 41027(module, exports, require) {
+  require.d(exports, {
+   By: () => () => Promise.resolve(undefined),
+   J7: () => () => ({ locationId: undefined, getLocationId: () => Promise.resolve(null) })
+  });
+ }
+};
+f.context.webpackChunk_N_E.push([[2888], chunkModules]);
+const exported = {};
+const req = id => ({});
+req.d = (target, def) => Object.keys(def).forEach(k => Object.defineProperty(target, k, { enumerable: true, get: def[k] }));
+chunkModules[41027]({}, exported, req);
+const j7Result = exported.J7('12345', true);
+assert.equal(j7Result.locationId, '2559577576138866706', 'Non-native WebView add-package receives fallback locationId');
+assert.equal(await j7Result.getLocationId(), '2559577576138866706');
+assert.equal(await exported.By(), '2559577576138866706');
+
+const calls = [];
+const httpModules = {
+ 83101(module, exports, require) {
+  require.d(exports, {
+   Z: () => ({
+    get(url, params) {
+     calls.push({ method: 'GET', url, params });
+     if (url === '/api/express_pyramid/dsd/in/cabinet/station/info') {
+      return Promise.resolve({ success: true, result: { longitude: '104.691', latitude: '28.832' } });
+     }
+     return Promise.resolve({});
+    },
+    post(url, data) {
+     calls.push({ method: 'POST', url, data });
+     if (url === '/api/ptolemeaus/location/report') {
+      return Promise.resolve({ success: true, result: { location_id: 'loc_from_station_coords' } });
+     }
+     return Promise.resolve({ success: true, result: {} });
+    }
+   })
+  });
+ }
+};
+f.context.webpackChunk_N_E.push([[9999], httpModules]);
+const httpExported = {};
+httpModules[83101]({}, httpExported, req);
+await httpExported.Z.post('/api/express_trackbox/dsd/manual/add/package/v2', {
+ station_code: 'ST_TEST_01',
+ search_text: '1234567890',
+ location_id: '2559577576138866706',
+ entry_source: '4'
+});
+assert.equal(calls.find(c => c.url === '/api/express_pyramid/dsd/in/cabinet/station/info')?.params.station_code, 'ST_TEST_01');
+assert.equal(calls.find(c => c.url === '/api/ptolemeaus/location/report')?.data.location.lng, '104.691');
+assert.equal(calls.find(c => c.url === '/api/express_trackbox/dsd/manual/add/package/v2')?.data.location_id, 'loc_from_station_coords');
+assert.equal(exported.J7('12345', true).locationId, 'loc_from_station_coords', 'Resolved station location_id updates fallback for module 41027');
+
 for(const page of ['https://m.pinduoduo.net/login.html','https://m.pinduoduo.net/psnl_verification.html','https://other.example/mdkd/package']){
  f=fixture(page);f.xhr.open('GET','https://api.pinduoduo.com/api/x');
  assert.equal(f.opened[0][1],'https://api.pinduoduo.com/api/x','Official login and verification pages are not modified');

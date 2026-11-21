@@ -47,7 +47,15 @@ final class CainiaoPage extends FrameLayout {
     private final Runnable onLoginRequired;
     private final Runnable poll = this::inspect;
     private WebView web;
-    private boolean dark, active, checking, installed, committed;
+    private boolean dark, active, prewarming, checking, installed, committed;
+    private Runnable onSettled;
+
+    void setOnSettled(Runnable listener) { onSettled = listener; }
+
+    private void notifySettled() {
+        Runnable listener = onSettled;
+        if (listener != null) listener.run();
+    }
     private long generation, deadline, phoneSince;
     private String phase = "loading";
     private float geometryWidth, geometryTop, geometryBody, geometryHeading;
@@ -179,6 +187,7 @@ final class CainiaoPage extends FrameLayout {
 
     void showPage() {
         active = true;
+        prewarming = false;
         if (isLoginRequired()) return;
         if (bootstrap.isEmpty()) {
             fail("菜鸟页面资源读取失败，请重新安装。");
@@ -187,6 +196,15 @@ final class CainiaoPage extends FrameLayout {
         if (web == null) createWeb();
         if (web != null) web.onResume();
         cover.setAnimating(cover.getVisibility() == VISIBLE);
+        inspect();
+    }
+
+    void prewarmPage() {
+        if (active || prewarming || isLoginRequired() || bootstrap.isEmpty() || web != null) return;
+        prewarming = true;
+        createWeb();
+        if (web != null) web.onResume();
+        cover.setAnimating(false);
         inspect();
     }
 
@@ -246,7 +264,7 @@ final class CainiaoPage extends FrameLayout {
                     return;
                 }
                 loading();
-                schedule(350);
+                schedule(120);
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
                 if (view == web && url.equals(view.getUrl())) { committed = true; inspect(); }
@@ -277,15 +295,16 @@ final class CainiaoPage extends FrameLayout {
 
     private void schedule(long delay) {
         removeCallbacks(poll);
-        if (active && web != null) postDelayed(poll, delay);
+        if ((active || prewarming) && web != null) postDelayed(poll, delay);
     }
 
     private void inspect() {
         removeCallbacks(poll);
-        if (!active || web == null || checking) return;
+        if (!(active || prewarming) || web == null || checking) return;
         if (!committed) { waiting(); return; }
         if (isLoginPage(web.getUrl())) {
             onLoginRequired.run();
+            notifySettled();
             return;
         }
         if (!isEntry(web.getUrl())) {
@@ -300,9 +319,10 @@ final class CainiaoPage extends FrameLayout {
             if (expected != web || token != generation) return;
             checking = false;
             installed = !"\"install\"".equals(value);
-            if (!active) return;
+            if (!(active || prewarming)) return;
             if ("\"login\"".equals(value)) {
                 onLoginRequired.run();
+                notifySettled();
             } else if ("\"ready\"".equals(value) || "\"workflow\"".equals(value)) {
                 phoneSince = 0;
                 boolean ready = "\"ready\"".equals(value);
@@ -324,7 +344,7 @@ final class CainiaoPage extends FrameLayout {
         if (!"loading".equals(phase) && !"error".equals(phase)) loading();
         if ("loading".equals(phase) && SystemClock.elapsedRealtime() >= deadline)
             fail("菜鸟身份码暂未准备好，请重试。");
-        schedule("error".equals(phase) ? 1200 : 350);
+        schedule("error".equals(phase) ? 1200 : 120);
     }
 
     private void loading() {
@@ -359,7 +379,7 @@ final class CainiaoPage extends FrameLayout {
                 if (web != expected || generation != token || !next.equals(phase)) return;
                 errorPanel.setVisibility(GONE);
                 expected.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_AUTO);
-                if ("ready".equals(next) && geometryWidth > 0 && cover.getVisibility() == VISIBLE) {
+                if (active && "ready".equals(next) && geometryWidth > 0 && cover.getVisibility() == VISIBLE) {
                     cover.morphIdentityTo(geometryWidth, geometryTop, geometryBody, geometryHeading, () -> {
                      if (web != expected || generation != token || !next.equals(phase)) return;
                      cover.animate().alpha(0f).setDuration(PickupLoadingView.FADE_DURATION).withEndAction(() -> {
@@ -368,12 +388,15 @@ final class CainiaoPage extends FrameLayout {
                         cover.setVisibility(GONE);
                         cover.setAlpha(1f);
                         restoringGeometry = false;
+                        notifySettled();
                     }).start();
                     });
                 } else {
                     cover.setAnimating(false);
                     cover.setVisibility(GONE);
                     restoringGeometry = false;
+                    if (prewarming && !active) pausePage();
+                    notifySettled();
                 }
             }
         });
@@ -389,6 +412,8 @@ final class CainiaoPage extends FrameLayout {
         cover.setVisibility(GONE);
         errorPanel.setVisibility(VISIBLE);
         if (web != null) web.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        if (prewarming && !active) pausePage();
+        notifySettled();
     }
 
     private void reload() {
@@ -398,11 +423,12 @@ final class CainiaoPage extends FrameLayout {
         committed = installed = checking = false;
         loading();
         web.loadUrl(ENTRY);
-        schedule(350);
+        schedule(120);
     }
 
     void pausePage() {
         active = false;
+        prewarming = false;
         removeCallbacks(poll);
         cover.setAnimating(false);
         if (web != null) web.onPause();
