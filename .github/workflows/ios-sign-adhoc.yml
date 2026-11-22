@@ -31,7 +31,7 @@ on:
 env:
   APP_NAME: HandyCode
   BUNDLE_ID: com.fairycrane.handycode
-  VERSION: "0.8.6"
+  VERSION: "0.8.7"
   SCHEME: HandyCode
 
 jobs:

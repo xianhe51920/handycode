@@ -1,6 +1,6 @@
-# HandyCode iOS 0.8.6 — 全版本安装与续签指南
+# HandyCode iOS 0.8.7 — 全版本安装与续签指南
 
-> 下载包说明：下方附件中的 **`HandyCode-0.8.6-trollstore.ipa`** 虽然文件名带有 `trollstore`，但本身就是**通用 `.ipa` 安装包**——无论你用的是老系统还是最新的 **iOS 27.2.1**，都直接下载这同一个文件，再按下面对应系统版本的路线安装即可。本次 **0.8.6** 已同步 Android 最新版的网页加载修复、拼多多「添加包裹」定位校验、空状态精简排版与切页提速优化。
+> 下载包说明：下方附件中的 **`HandyCode-0.8.7-trollstore.ipa`** 虽然文件名带有 `trollstore`，但本身就是**通用 `.ipa` 安装包**——无论你用的是老系统还是最新的 **iOS 27.2.1**，都直接下载这同一个文件，再按下面对应系统版本的路线安装即可。本次 **0.8.7** 已同步 Android 最新版的拼多多新版前端分段刷新修复、定位/HTTP 模块动态识别及地理编码参数兼容。
 
 ---
 
@@ -30,7 +30,7 @@
    - **iOS 15.0 ～ 17.0**：电脑下载 [TrollRestore](https://github.com/JJTech0130/TrollRestore/releases)，手机连电脑按提示写入。
    - 多版本支持明细见官方对照表：[TrollStore CFW 指南](https://ios.cfw.guide/installing-trollstore/)。
 2. **安装 HandyCode**：
-   - 用 iPhone Safari 下载本页附件中的 **`HandyCode-0.8.6-trollstore.ipa`**；
+   - 用 iPhone Safari 下载本页附件中的 **`HandyCode-0.8.7-trollstore.ipa`**；
    - 下载完成后点文件“分享”到 **TrollStore** → 点击 **Install** 即可永久使用。
 
 ---
@@ -52,7 +52,7 @@
 - **步骤**：
   1. 按照官方引导 **[sidestore.io](https://sidestore.io/)**，用电脑首次把 **SideStore** 装进手机，并导入一次设备配对文件（Pairing File）；
   2. 按官方指引在手机配好本地回路 VPN（LocalDevVPN / 官方推荐工具），并确保已在 **设置 → 隐私与安全性** 开启 **开发者模式**；
-  3. 用 iPhone **Safari** 下载本页附件 `HandyCode-0.8.6-trollstore.ipa`；
+  3. 用 iPhone **Safari** 下载本页附件 `HandyCode-0.8.7-trollstore.ipa`；
   4. 开启本地 VPN 后打开 **SideStore**，点左上角 `+` 号选择刚下载好的 `.ipa` 即可自动签名安装；
   5. **后续续签**：以后每 7 天内，只要手机连着 Wi‑Fi 并打开本地 VPN，在 SideStore 里点一下 **Refresh All** 即可直接续期（也可配合 iOS「快捷指令」设成每周自动触发），全程不再需要电脑。
 
@@ -62,9 +62,9 @@
 
 - **适合人群**：手边随时有 Windows 或 Mac 电脑、希望 3 分钟直接装好体验的用户。
 - **以爱思助手 / Sideloadly 为例（均支持 iOS 27.2.1）**：
-  1. 电脑下载安装 [爱思助手](https://www.i4.cn/)（或 [Sideloadly](https://sideloadly.io/)）以及先在电脑下载本页的 `HandyCode-0.8.6-trollstore.ipa`；
+  1. 电脑下载安装 [爱思助手](https://www.i4.cn/)（或 [Sideloadly](https://sideloadly.io/)）以及先在电脑下载本页的 `HandyCode-0.8.7-trollstore.ipa`；
   2. 手机用数据线连接电脑，并在手机弹窗点击 **“信任此电脑”**；
-  3. **爱思助手路径**：打开顶部 **“工具箱” → “IPA 签名”** → 添加 `HandyCode-0.8.6-trollstore.ipa` → 选择 **“使用 Apple ID 签名”** → 登录个人 Apple ID 并开始签名，完成后点击安装到手机；  
+  3. **爱思助手路径**：打开顶部 **“工具箱” → “IPA 签名”** → 添加 `HandyCode-0.8.7-trollstore.ipa` → 选择 **“使用 Apple ID 签名”** → 登录个人 Apple ID 并开始签名，完成后点击安装到手机；  
      **AltStore 路径**：也可使用 AltServer 在同一局域网 Wi‑Fi 下实现电脑开机即自动续签。
   4. 装好后若系统提示未受信任或需要开发者模式：依次完成上方的 **打开开发者模式（重启）+ VPN 与设备管理中信任证书**；
   5. **7 天到期处理**：第 7 天前后手机连接电脑重新点一次签名并覆盖安装，**无需卸载**，原有登录态可继续保留。
@@ -76,5 +76,5 @@
 - **适合人群**：完全不想折腾 7 天续签的用户。
 - **做法**：
   1. 若持有 Apple 个人开发者账号（\$99/年），或通过正规渠道为自己设备 UDID 签发的 1 年期个人开发证书（`.p12` + `.mobileprovision`）；
-  2. 在 iOS 端使用签名工具导入证书和本页 `HandyCode-0.8.6-trollstore.ipa` 完成签名安装（同样需按提示信任对应描述文件/开启开发者模式）；
+  2. 在 iOS 端使用签名工具导入证书和本页 `HandyCode-0.8.7-trollstore.ipa` 完成签名安装（同样需按提示信任对应描述文件/开启开发者模式）；
   3. 有效期内（最长 1 年）无需每 7 天续签。*(注：不建议使用来路不明的免费共享企业证书，随时可能被苹果集中吊销导致闪退。)*

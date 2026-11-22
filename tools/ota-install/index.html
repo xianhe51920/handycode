@@ -291,8 +291,8 @@ const REPO = "xianhe51920/handycode";
 const TAG  = "ios-signed-latest";
 const BASE = `https://github.com/${REPO}/releases/download/${TAG}`;
 
-const TS_IPA_URL      = `${BASE}/HandyCode-0.8.6-trollstore.ipa`;
-const AS_IPA_URL      = `${BASE}/HandyCode-0.8.6-altstore.ipa`;
+const TS_IPA_URL      = `${BASE}/HandyCode-0.8.7-trollstore.ipa`;
+const AS_IPA_URL      = `${BASE}/HandyCode-0.8.7-altstore.ipa`;
 const MANIFEST_URL    = `${BASE}/manifest.plist`;
 const SIGN_INFO_URL   = `${BASE}/sign-info.txt`;
 
@@ -306,7 +306,7 @@ async function loadSignInfo() {
       const [k, ...v] = l.split("=");
       if (k) info[k.trim()] = v.join("=").trim();
     });
-    const v = info.version || "0.8.6";
+    const v = info.version || "0.8.7";
     const signedAt = info.signed_at ? new Date(info.signed_at) : null;
     const expireAt = signedAt ? new Date(signedAt.getTime() + 7*86400000) : null;
     const daysLeft = expireAt ? Math.ceil((expireAt-new Date())/86400000) : null;
@@ -321,7 +321,7 @@ async function loadSignInfo() {
     document.getElementById("altstore-dl-btn").href = asUrl;
     document.getElementById("sideloadly-dl-btn").href = asUrl;
   } catch {
-    document.getElementById("ver-label").textContent = "版本 0.8.6";
+    document.getElementById("ver-label").textContent = "版本 0.8.7";
   }
 }
 

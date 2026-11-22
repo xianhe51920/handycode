@@ -6,10 +6,10 @@
 
 HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taobao and Pinduoduo pickup information, and JD identity codes and pickup codes available in JD orders.
 
-最新正式版 **0.8.4**，支持 Android 8.0（API 26）及以上，目标 API 35。
+最新正式版 **0.8.7**，支持 Android 8.0（API 26）及以上，目标 API 35。
 
 - [下载最新 APK 与查看更新说明](https://github.com/xianhe51920/handycode/releases/latest)
-- [0.8.4 更新说明](docs/releases/0.8.4.md)
+- [0.8.7 更新说明](docs/releases/0.8.7.md)
 - [版本、包大小及签名证书摘要](release.json)
 
 安装包随 GitHub Releases 分发，仓库不跟踪构建产物。下载站是独立项目，不随本仓库发布。
@@ -25,7 +25,7 @@ HandyCode is an unofficial Android app for viewing Cainiao identity codes, Taoba
 
 四个平台的入口固定为「菜鸟 → 淘宝 → 拼多多 → 京东」。身份码、包裹各自刷新；支持点击和横向滑动切换、记忆上次标签、玻璃昼夜开关、可见条码自动提亮，以及卡片下方的当前平台退出入口。
 
-0.8.4 修复系统关怀/大字模式下 WebView 内嵌页面与京东原生卡片字体过度放大导致的排版错位问题（Issue #10）。详情和验证边界见[更新说明](docs/releases/0.8.4.md)。
+0.8.7 修复拼多多前端构建更新后「身份码」与「待取包裹」无法分段刷新的问题，将数字 chunk 与定位/HTTP 模块匹配改为基于结构与特征的动态适配。详情和验证边界见[更新说明](docs/releases/0.8.7.md)。
 
 ## 免责声明
 
@@ -185,7 +185,7 @@ https://m.pinduoduo.net/proxy/api/api/express_trackbox/...
 
 ### 每张卡片只刷新自己
 
-`PddBundleAdapter` 对身份码组件（`1235-<hash>.js`）和包裹组件（`8905-<hash>.js` 或 `5709-<hash>.js`）进行唯一锚点匹配，在组件生命周期内注册官方查询回调。响应处理只报告成功布尔值。
+`PddBundleAdapter` 对身份码与包裹列表数字 chunk 进行结构与唯一锚点匹配，在组件生命周期内注册官方查询回调。响应处理只报告成功布尔值。
 
 `pdd-section-refresh.js` 按分区去重，允许两个分区并行，12 秒超时；`pdd-layout.js` 固定所点卡片高度、隐藏旧显示、等待官方状态更新后替换这一块，另一块 DOM 不变。失败只在当前卡片显示重试。上游脚本结构不匹配时不勉强替换、不误绑回调，也不退回整页刷新。
 

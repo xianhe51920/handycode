@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "0.8.6"
-    CURRENT_PROJECT_VERSION: "40"
+    MARKETING_VERSION: "0.8.7"
+    CURRENT_PROJECT_VERSION: "41"
 targets:
   HandyCode:
     type: application

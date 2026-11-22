@@ -103,8 +103,8 @@ jobs:
           mkdir -p ../dist/Payload
           cp -R ../build/ios-derived/Build/Products/Release-iphoneos/HandyCode.app ../dist/Payload/
           cd ../dist
-          zip -r HandyCode-0.8.6-ios-unsigned.ipa Payload
-          shasum -a 256 HandyCode-0.8.6-ios-unsigned.ipa > HandyCode-0.8.6-ios-unsigned.ipa.sha256
+          zip -r HandyCode-0.8.7-ios-unsigned.ipa Payload
+          shasum -a 256 HandyCode-0.8.7-ios-unsigned.ipa > HandyCode-0.8.7-ios-unsigned.ipa.sha256
           rm -rf Payload
           cd ../ios
           xcodebuild build \
@@ -114,14 +114,14 @@ jobs:
             -sdk iphonesimulator \
             -derivedDataPath ../build/ios-sim-derived
           cd ../build/ios-sim-derived/Build/Products/Release-iphonesimulator
-          zip -r "$GITHUB_WORKSPACE/dist/HandyCode-0.8.6-ios-simulator-app.zip" HandyCode.app
+          zip -r "$GITHUB_WORKSPACE/dist/HandyCode-0.8.7-ios-simulator-app.zip" HandyCode.app
       - name: Upload iOS artifacts and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: handycode-ios-0.8.6
+          name: handycode-ios-0.8.7
           path: |
-            dist/HandyCode-0.8.6-ios-unsigned.ipa
-            dist/HandyCode-0.8.6-ios-unsigned.ipa.sha256
-            dist/HandyCode-0.8.6-ios-simulator-app.zip
+            dist/HandyCode-0.8.7-ios-unsigned.ipa
+            dist/HandyCode-0.8.7-ios-unsigned.ipa.sha256
+            dist/HandyCode-0.8.7-ios-simulator-app.zip
             build/ios-screenshots/
