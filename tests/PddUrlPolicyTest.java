@@ -21,8 +21,12 @@ public final class PddUrlPolicyTest {
             expect(false, UrlPolicy.isPddAllowed(url));
         expect(true, UrlPolicy.isPddAppBundle("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-21fd7eb3eb3caac5.js"));
         expect(true, "identity".equals(UrlPolicy.pddRefreshPart("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-91966cd87947ff3c.js")));
+        expect(true, "identity".equals(UrlPolicy.pddRefreshPart("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8173-914a2baa3f71f059.js")));
         expect(true, "parcels".equals(UrlPolicy.pddRefreshPart("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8905-86d1ed3163cf59c9.js")));
         expect(true, "parcels".equals(UrlPolicy.pddRefreshPart("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5709-3b78309922cfea15.js")));
+        expect(true, "parcels".equals(UrlPolicy.pddRefreshPart("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5685-81ae63372e8a5082.js")));
+        expect(true, UrlPolicy.isPddNumericChunk("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/9999-abc123.js"));
+        expect(false, UrlPolicy.isPddNumericChunk("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-4556c45dd113b893.js"));
         for (String invalid : new String[]{"https://pfile.pddpic.com.evil.example/mdkd/mdkd/_next/static/chunks/1235-abc.js","https://name@pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-abc.js","https://pfile.pddpic.com:444/mdkd/mdkd/_next/static/chunks/1235-abc.js","http://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-abc.js","https://pfile.pddpic.com/other/1235-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/9999-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8905-abc.js/extra"})
             expect(true, UrlPolicy.pddRefreshPart(invalid) == null);
         for (String url : new String[]{"https://pfile.pddpic.com.evil.example/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","http://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","https://name@pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/package-abc.js","https://pfile.pddpic.com/other/_app-abc.js","https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-abc.js/extra"})
@@ -38,8 +42,11 @@ public final class PddUrlPolicyTest {
                 null,
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-21fd7eb3eb3caac5.js",
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-91966cd87947ff3c.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8173-914a2baa3f71f059.js",
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8905-86d1ed3163cf59c9.js",
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5709-3b78309922cfea15.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5685-81ae63372e8a5082.js",
+                "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/9999-abc123.js",
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/app.js",
                 "https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/../secret-abc123.js",
                 "https://pfile.pddpic.com.evil.example/mdkd/mdkd/_next/static/chunks/framework-abc123.js",

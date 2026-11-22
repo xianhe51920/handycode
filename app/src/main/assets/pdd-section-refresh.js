@@ -1,13 +1,29 @@
 ;(function () {
  'use strict';
  if (window.top !== window || location.origin !== 'https://m.pinduoduo.net' || location.pathname !== '/mdkd/package' || window.HandyPddRefresh) return;
- var callbacks = Object.create(null), requests = Object.create(null);
+ var callbacks = Object.create(null), nativeParts = Object.create(null), requests = Object.create(null);
  function valid(part) { return part === 'identity' || part === 'parcels'; }
  window.HandyPddRefresh = {
   register: function (part, callback) {
    if (!valid(part) || typeof callback !== 'function') return function () {};
+   nativeParts[part] = true;
    callbacks[part] = callback;
-   return function () { if (callbacks[part] === callback) delete callbacks[part]; };
+   return function () {
+    if (callbacks[part] === callback) {
+     delete callbacks[part];
+     delete nativeParts[part];
+    }
+   };
+  },
+  registerFallback: function (part, callback) {
+   if (!valid(part) || typeof callback !== 'function' || nativeParts[part]) return function () {};
+   callbacks[part] = callback;
+   return function () {
+    if (!nativeParts[part] && callbacks[part] === callback) delete callbacks[part];
+   };
+  },
+  has: function (part) {
+   return Boolean(valid(part) && callbacks[part]);
   },
   report: function (part, success) {
    if (requests[part]) requests[part].success = success === true;

@@ -31,6 +31,8 @@
  var stationLocationCache = Object.create(null);
  var stationMeta = Object.create(null);
  var geocodeWaiters = Object.create(null);
+ var identityPostWaiter = null;
+ var parcelsFallbackActive = false;
  window.__hcOnStationCoords = function (code, lng, lat) {
   var list = geocodeWaiters[code];
   delete geocodeWaiters[code];
@@ -151,13 +153,25 @@
   stationLocationCache[stationCode] = { pending: pending, ts: Date.now() };
   return pending;
  }
- function wrapLocationModule(modules) {
-  if (!modules || typeof modules !== 'object' || typeof modules[41027] !== 'function' || modules[41027].__hcWrapped) return;
-  var originalFactory = modules[41027];
+ function proxyModuleExports(mod, overrides) {
+  var copy = {};
+  Object.keys(mod).forEach(function (key) {
+   if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+    copy[key] = overrides[key];
+    return;
+   }
+   var desc = Object.getOwnPropertyDescriptor(mod, key);
+   if (desc) Object.defineProperty(copy, key, desc);
+  });
+  return copy;
+ }
+ function wrapLocationModule(modules, id) {
+  if (!modules || typeof modules !== 'object' || typeof modules[id] !== 'function' || modules[id].__hcWrapped) return;
+  var originalFactory = modules[id];
   var wrapped = function (module, exports, require) {
    var origD = require && require.d;
    if (typeof origD === 'function') {
-    var proxyRequire = function (id) { return require(id); };
+    var proxyRequire = function (reqId) { return require(reqId); };
     Object.keys(require).forEach(function (k) { proxyRequire[k] = require[k]; });
     proxyRequire.d = function (target, definition) {
      if (definition && typeof definition.J7 === 'function') {
@@ -199,15 +213,15 @@
    return originalFactory.call(this, module, exports, require);
   };
   wrapped.__hcWrapped = true;
-  modules[41027] = wrapped;
+  modules[id] = wrapped;
  }
- function wrapHttpModule(modules) {
-  if (!modules || typeof modules !== 'object' || typeof modules[83101] !== 'function' || modules[83101].__hcWrapped) return;
-  var originalFactory = modules[83101];
+ function wrapHttpModule(modules, id) {
+  if (!modules || typeof modules !== 'object' || typeof modules[id] !== 'function' || modules[id].__hcWrapped) return;
+  var originalFactory = modules[id];
   var wrapped = function (module, exports, require) {
    var origD = require && require.d;
    if (typeof origD === 'function') {
-    var proxyRequire = function (id) { return require(id); };
+    var proxyRequire = function (reqId) { return require(reqId); };
     Object.keys(require).forEach(function (k) { proxyRequire[k] = require[k]; });
     proxyRequire.d = function (target, definition) {
      if (definition && typeof definition.Z === 'function') {
@@ -220,6 +234,37 @@
          var origPost = client.post;
          client.post = function (url, data, options, config) {
           var self = this;
+          if (url === '/api/express_trackbox/generate_identification_code') {
+           var idWaiter = identityPostWaiter;
+           identityPostWaiter = null;
+           if (idWaiter) idWaiter.triggered = true;
+           return Promise.resolve(origPost.call(this, url, data, options, config)).then(function (res) {
+            if (idWaiter) {
+             if (window.HandyPddRefresh) window.HandyPddRefresh.report('identity', !!(res && res.success));
+             idWaiter.resolve(res);
+            }
+            return res;
+           }, function (err) {
+            if (idWaiter) {
+             if (window.HandyPddRefresh) window.HandyPddRefresh.report('identity', false);
+             idWaiter.reject(err);
+            }
+            throw err;
+           });
+          }
+          if (url === '/api/express_trackbox/station/package') {
+           return Promise.resolve(origPost.call(this, url, data, options, config)).then(function (res) {
+            if (parcelsFallbackActive && window.HandyPddRefresh) {
+             window.HandyPddRefresh.report('parcels', !!(res && res.success));
+            }
+            return res;
+           }, function (err) {
+            if (parcelsFallbackActive && window.HandyPddRefresh) {
+             window.HandyPddRefresh.report('parcels', false);
+            }
+            throw err;
+           });
+          }
           if (url === '/api/express_trackbox/add/package/v2/station/history/info') {
            return origPost.call(this, url, data, options, config).then(function (res) {
             try {
@@ -253,22 +298,136 @@
    return originalFactory.call(this, module, exports, require);
   };
   wrapped.__hcWrapped = true;
-  modules[83101] = wrapped;
+  modules[id] = wrapped;
+ }
+ function runIdentityFallback(cb) {
+  return new Promise(function (resolve, reject) {
+   var waiter = { triggered: false, resolve: resolve, reject: reject };
+   identityPostWaiter = waiter;
+   try {
+    cb();
+   } catch (err) {
+    if (identityPostWaiter === waiter) identityPostWaiter = null;
+    reject(err);
+    return;
+   }
+   if (!waiter.triggered) {
+    if (identityPostWaiter === waiter) identityPostWaiter = null;
+    reject(new Error('refresh-failed'));
+   }
+  });
+ }
+ function wrapIdentityModule(modules, id) {
+  if (!modules || typeof modules !== 'object' || typeof modules[id] !== 'function' || modules[id].__hcWrapped) return;
+  var originalFactory = modules[id];
+  var wrapped = function (module, exports, require) {
+   if (typeof require !== 'function') return originalFactory.call(this, module, exports, require);
+   var proxyRequire = function (reqId) {
+    var mod = require(reqId);
+    if (mod && typeof mod === 'object' && typeof mod.p === 'function' && Object.keys(mod).length === 1) {
+     var origP = mod.p;
+     return proxyModuleExports(mod, {
+      p: function (cb) {
+       if (typeof cb === 'function' && window.HandyPddRefresh && typeof window.HandyPddRefresh.registerFallback === 'function') {
+        window.HandyPddRefresh.registerFallback('identity', function () { return runIdentityFallback(cb); });
+       }
+       return origP.apply(this, arguments);
+      }
+     });
+    }
+    return mod;
+   };
+   Object.keys(require).forEach(function (k) { proxyRequire[k] = require[k]; });
+   return originalFactory.call(this, module, exports, proxyRequire);
+  };
+  wrapped.__hcWrapped = true;
+  modules[id] = wrapped;
+ }
+ function wrapParcelsModule(modules, id) {
+  if (!modules || typeof modules !== 'object' || typeof modules[id] !== 'function' || modules[id].__hcWrapped) return;
+  var originalFactory = modules[id];
+  var refreshThunk = null, dispatchFn = null;
+  function maybeRegisterParcels() {
+   if (!refreshThunk || !dispatchFn || !window.HandyPddRefresh || typeof window.HandyPddRefresh.registerFallback !== 'function') return;
+   var thunk = refreshThunk, dispatch = dispatchFn;
+   window.HandyPddRefresh.registerFallback('parcels', function () {
+    parcelsFallbackActive = true;
+    return Promise.resolve().then(function () {
+     return dispatch(thunk());
+    }).finally(function () {
+     parcelsFallbackActive = false;
+    });
+   });
+  }
+  var wrapped = function (module, exports, require) {
+   if (typeof require !== 'function') return originalFactory.call(this, module, exports, require);
+   var proxyRequire = function (reqId) {
+    var mod = require(reqId);
+    if (mod && typeof mod === 'object') {
+     if (typeof mod.hg === 'function') {
+      var origHg = mod.hg;
+      return proxyModuleExports(mod, {
+       hg: function (name) {
+        var created = origHg.apply(this, arguments);
+        if (name === 'package/refreshPackagePage') {
+         refreshThunk = created;
+         maybeRegisterParcels();
+        }
+        return created;
+       }
+      });
+     }
+     if (typeof mod.TL === 'function') {
+      var origTL = mod.TL;
+      return proxyModuleExports(mod, {
+       TL: function () {
+        var d = origTL.apply(this, arguments);
+        if (typeof d === 'function') {
+         dispatchFn = d;
+         maybeRegisterParcels();
+        }
+        return d;
+       }
+      });
+     }
+    }
+    return mod;
+   };
+   Object.keys(require).forEach(function (k) { proxyRequire[k] = require[k]; });
+   return originalFactory.call(this, module, exports, proxyRequire);
+  };
+  wrapped.__hcWrapped = true;
+  modules[id] = wrapped;
+ }
+ function inspectModules(modules) {
+  if (!modules || typeof modules !== 'object') return;
+  Object.keys(modules).forEach(function (id) {
+   var fn = modules[id];
+   if (typeof fn !== 'function' || fn.__hcWrapped) return;
+   if (id === '41027') { wrapLocationModule(modules, id); return; }
+   if (id === '83101') { wrapHttpModule(modules, id); return; }
+   if (fn.length < 2) return;
+   var src;
+   try { src = Function.prototype.toString.call(fn); } catch (e) { return; }
+   if (/\bBy\s*:/.test(src) && /\bJ7\s*:/.test(src)) {
+    wrapLocationModule(modules, id);
+   } else if (src.indexOf('BACKEND_API') !== -1 && src.indexOf('isApiRequest') !== -1 && /\bpost\s*:/.test(src)) {
+    wrapHttpModule(modules, id);
+   } else if (src.indexOf('identification-code-container') !== -1 && src.indexOf('generateIdentificationCode') !== -1) {
+    wrapIdentityModule(modules, id);
+   } else if (src.indexOf('package/refreshPackagePage') !== -1 && src.indexOf('pick_up_mode') !== -1) {
+    wrapParcelsModule(modules, id);
+   }
+  });
  }
  var chunkQueue = window.webpackChunk_N_E = window.webpackChunk_N_E || [];
  if (Array.isArray(chunkQueue)) {
   chunkQueue.forEach(function (entry) {
-   if (entry && entry[1]) {
-    wrapLocationModule(entry[1]);
-    wrapHttpModule(entry[1]);
-   }
+   if (entry && entry[1]) inspectModules(entry[1]);
   });
   var origPush = chunkQueue.push;
   chunkQueue.push = function (entry) {
-   if (entry && entry[1]) {
-    wrapLocationModule(entry[1]);
-    wrapHttpModule(entry[1]);
-   }
+   if (entry && entry[1]) inspectModules(entry[1]);
    return origPush.apply(this, arguments);
   };
  }

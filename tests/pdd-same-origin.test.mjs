@@ -94,6 +94,92 @@ assert.equal(calls.find(c => c.url === '/api/ptolemeaus/location/report')?.data.
 assert.equal(calls.find(c => c.url === '/api/express_trackbox/dsd/manual/add/package/v2')?.data.location_id, 'loc_from_station_coords');
 assert.equal(exported.J7('12345', true).locationId, 'loc_from_station_coords', 'Resolved station location_id updates fallback for module 41027');
 
+// Dynamic module IDs (like 2026-11-22 build 82469 / 96133) + runtime refresh fallback
+const refreshScript = readFileSync(new URL('../app/src/main/assets/pdd-section-refresh.js', import.meta.url), 'utf8');
+const dynTimers = new Map(); let dynSeq = 0;
+const dynLocation = new URL('https://m.pinduoduo.net/mdkd/package?tab=ID_CODE');
+function DynXhr() {}
+DynXhr.prototype.open = function () {};
+const dynCtx = {
+ location: dynLocation,
+ URL,
+ Request,
+ XMLHttpRequest: DynXhr,
+ setTimeout: fn => { dynTimers.set(++dynSeq, fn); return dynSeq; },
+ clearTimeout: id => dynTimers.delete(id)
+};
+dynCtx.window = dynCtx;
+dynCtx.top = dynCtx;
+runInNewContext(refreshScript + '\n' + source, dynCtx);
+const dynCalls = [];
+const dynModules = {
+ 82469(module, exports, require) {
+  require.d(exports, {
+   By: () => () => Promise.resolve(undefined),
+   J7: () => () => ({ locationId: undefined, getLocationId: () => Promise.resolve(null) })
+  });
+ },
+ 96133(module, exports, require) {
+  const BACKEND_API = 'https://api.pinduoduo.com'; const isApiRequest = true;
+  require.d(exports, {
+   Z: () => ({
+    get(url, params) { return Promise.resolve({ success: true, result: { longitude: '104.7', latitude: '28.9' } }); },
+    post: function (url, data) {
+     dynCalls.push({ url, data, tag: BACKEND_API, isApiRequest });
+     if (url === '/api/ptolemeaus/location/report') return Promise.resolve({ success: true, result: { location_id: 'dyn_loc_1' } });
+     if (url === '/api/express_trackbox/generate_identification_code') return Promise.resolve({ success: true, result: { identification_code: 'ID123' } });
+     if (url === '/api/express_trackbox/station/package') return Promise.resolve({ success: true, result: { combine_list: [] } });
+     return Promise.resolve({ success: true });
+    }
+   })
+  });
+ },
+ 40616(module, exports, require) { require.d(exports, { p: () => () => {} }); },
+ 17984(module, exports, require) { require.d(exports, { hg: () => (name, fn) => () => (dispatch, getState) => fn(null, { dispatch, getState }) }); },
+ 12479(module, exports, require) {
+  require.d(exports, {
+   TL: () => () => {
+    const dispatch = action => typeof action === 'function' ? action(dispatch, () => ({})) : action;
+    return dispatch;
+   }
+  });
+ }
+};
+const dynPageModules = {
+ 67441(module, exports, require) {
+  const b = require(40616), N = { GL: { generateIdentificationCode: t => require(96133).Z.post('/api/express_trackbox/generate_identification_code', t) } };
+  const cls = 'identification-code-container';
+  b.p(function () { return N.GL.generateIdentificationCode({ entry_source: cls }); });
+ },
+ 65867(module, exports, require) {
+  const Et = require(17984), p = require(12479);
+  const Ht = Et.hg('package/refreshPackagePage', function () { return require(96133).Z.post('/api/express_trackbox/station/package', { pick_up_mode: 1 }); });
+  const dispatch = p.TL();
+  exports.run = () => dispatch(Ht());
+ }
+};
+dynCtx.webpackChunk_N_E.push([[1], dynModules]);
+dynCtx.webpackChunk_N_E.push([[2], dynPageModules]);
+const dynReq = id => {
+ const out = {};
+ const mod = dynModules[id] || dynPageModules[id];
+ const r = x => dynReq(x);
+ r.d = (t, def) => Object.keys(def).forEach(k => Object.defineProperty(t, k, { enumerable: true, get: def[k] }));
+ mod({}, out, r);
+ return out;
+};
+const dynLoc = dynReq(82469);
+const dynHttp = dynReq(96133);
+await dynHttp.Z.post('/api/express_trackbox/dsd/manual/add/package/v2', { station_code: 'ST_DYN', entry_source: '4' });
+assert.equal(dynCalls.find(c => c.url === '/api/express_trackbox/dsd/manual/add/package/v2')?.data.location_id, 'dyn_loc_1');
+assert.equal(dynLoc.J7().locationId, 'dyn_loc_1');
+dynReq(67441);
+dynReq(65867);
+await dynCtx.HandyPddRefresh.run('identity');
+await dynCtx.HandyPddRefresh.run('parcels');
+assert.ok(dynCalls.some(c => c.url === '/api/express_trackbox/generate_identification_code'));
+assert.ok(dynCalls.some(c => c.url === '/api/express_trackbox/station/package'));
+
 for(const page of ['https://m.pinduoduo.net/login.html','https://m.pinduoduo.net/psnl_verification.html','https://other.example/mdkd/package']){
  f=fixture(page);f.xhr.open('GET','https://api.pinduoduo.com/api/x');
  assert.equal(f.opened[0][1],'https://api.pinduoduo.com/api/x','Official login and verification pages are not modified');

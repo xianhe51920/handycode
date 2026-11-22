@@ -347,19 +347,19 @@ final class PddPage extends LinearLayout {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 boolean appBundle = UrlPolicy.isPddAppBundle(url);
-                String refreshPart = UrlPolicy.pddRefreshPart(url);
-                boolean immutableAsset = !appBundle && refreshPart == null && UrlPolicy.isPddImmutableStaticAsset(url);
-                if (!"GET".equals(request.getMethod()) || (!appBundle && refreshPart == null && !immutableAsset)) return null;
-                byte[] bytes = adjustedBundle(url, !immutableAsset);
-                if (bytes == null) {
+                boolean numericChunk = !appBundle && UrlPolicy.isPddNumericChunk(url);
+                boolean immutableAsset = !appBundle && !numericChunk && UrlPolicy.isPddImmutableStaticAsset(url);
+                if (!"GET".equals(request.getMethod()) || (!appBundle && !numericChunk && !immutableAsset)) return null;
+                BundleResult result = loadBundle(url, appBundle, numericChunk);
+                if (result == null) {
                     if (appBundle) post(() -> { if (!destroyed) { actions.setVisibility(View.VISIBLE); status.setText("网页兼容加载失败，请点重试"); } });
                     return null;
                 }
                 if (appBundle) bundleAdjusted = true;
                 Map<String, String> headers = new HashMap<>();
-                headers.put("Cache-Control", immutableAsset ? "public, max-age=31536000, immutable" : "no-store");
+                headers.put("Cache-Control", result.immutable ? "public, max-age=31536000, immutable" : "no-store");
                 headers.put("Access-Control-Allow-Origin", "https://m.pinduoduo.net");
-                InputStream stream = new ByteArrayInputStream(bytes);
+                InputStream stream = new ByteArrayInputStream(result.bytes);
                 if (appBundle) {
                     byte[] prefix = ("window.__HC_DARK__=" + dark + ";\n").getBytes(StandardCharsets.UTF_8);
                     stream = new java.io.SequenceInputStream(new ByteArrayInputStream(prefix), stream);
@@ -549,30 +549,36 @@ final class PddPage extends LinearLayout {
         t.start();
     }
 
+    private static final class BundleResult {
+        final byte[] bytes;
+        final boolean immutable;
+        BundleResult(byte[] bytes, boolean immutable) {
+            this.bytes = bytes;
+            this.immutable = immutable;
+        }
+    }
+
     private static boolean isCssAsset(String raw) {
         String path = android.net.Uri.parse(raw).getPath();
         return path != null && path.endsWith(".css");
     }
 
-    private java.io.File bundleCacheFile(String address, boolean patched) {
+    private java.io.File bundleCacheFile(String cacheKey, String ext) {
         try {
-            java.io.File dir = new java.io.File(getContext().getCacheDir(), "pdd_bundles_v2");
+            java.io.File dir = new java.io.File(getContext().getCacheDir(), "pdd_bundles_v3");
             if (!dir.exists() && !dir.mkdirs()) return null;
             java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            String key = patched
-                ? address + "|" + (compatibilityScript == null ? 0 : compatibilityScript.hashCode())
-                : "raw|" + address;
-            byte[] hash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(cacheKey.getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(64);
             for (byte b : hash) hex.append(String.format(java.util.Locale.ROOT, "%02x", b));
-            return new java.io.File(dir, hex + (!patched && isCssAsset(address) ? ".css" : ".js"));
+            return new java.io.File(dir, hex + ext);
         } catch (Exception ignored) {
             return null;
         }
     }
 
-    private byte[] readDiskBundle(String address, boolean patched) {
-        java.io.File file = bundleCacheFile(address, patched);
+    private byte[] readDiskBundle(String cacheKey, String ext) {
+        java.io.File file = bundleCacheFile(cacheKey, ext);
         if (file == null || !file.isFile() || file.length() <= 0 || file.length() > 6 * 1024 * 1024) return null;
         try (java.io.FileInputStream in = new java.io.FileInputStream(file);
              ByteArrayOutputStream out = new ByteArrayOutputStream((int) file.length())) {
@@ -585,8 +591,8 @@ final class PddPage extends LinearLayout {
         }
     }
 
-    private void writeDiskBundle(String address, boolean patched, byte[] bytes) {
-        java.io.File file = bundleCacheFile(address, patched);
+    private void writeDiskBundle(String cacheKey, String ext, byte[] bytes) {
+        java.io.File file = bundleCacheFile(cacheKey, ext);
         if (file == null || bytes == null || bytes.length == 0) return;
         try {
             java.io.File dir = file.getParentFile();
@@ -604,16 +610,46 @@ final class PddPage extends LinearLayout {
         } catch (Exception ignored) {}
     }
 
-    private byte[] adjustedBundle(String address, boolean patched) {
-        String memKey = patched ? address : "raw|" + address;
-        byte[] cached = cachedAssets.get(memKey);
-        if (cached != null) return cached;
-        byte[] diskCached = readDiskBundle(address, patched);
-        if (diskCached != null) {
-            if (cachedAssets.size() >= 32) cachedAssets.clear();
-            cachedAssets.put(memKey, diskCached);
-            return diskCached;
+    private void putMemoryCache(String key, byte[] bytes) {
+        if (cachedAssets.size() >= 32) cachedAssets.clear();
+        cachedAssets.put(key, bytes);
+    }
+
+    private BundleResult loadBundle(String address, boolean appBundle, boolean numericChunk) {
+        String ext = !appBundle && !numericChunk && isCssAsset(address) ? ".css" : ".js";
+        if (appBundle) {
+            String key = "app|" + (compatibilityScript == null ? 0 : compatibilityScript.hashCode()) + "|" + address;
+            byte[] cached = cachedAssets.get(key);
+            if (cached == null) cached = readDiskBundle(key, ext);
+            if (cached != null) {
+                putMemoryCache(key, cached);
+                return new BundleResult(cached, false);
+            }
+        } else if (numericChunk) {
+            String patchedKey = "patched|" + PddBundleAdapter.VERSION + "|" + address;
+            byte[] patchedCached = cachedAssets.get(patchedKey);
+            if (patchedCached == null) patchedCached = readDiskBundle(patchedKey, ext);
+            if (patchedCached != null) {
+                putMemoryCache(patchedKey, patchedCached);
+                return new BundleResult(patchedCached, false);
+            }
+            String rawKey = "raw|" + address;
+            byte[] rawCached = cachedAssets.get(rawKey);
+            if (rawCached == null) rawCached = readDiskBundle(rawKey, ext);
+            if (rawCached != null) {
+                putMemoryCache(rawKey, rawCached);
+                return new BundleResult(rawCached, true);
+            }
+        } else {
+            String rawKey = "raw|" + address;
+            byte[] cached = cachedAssets.get(rawKey);
+            if (cached == null) cached = readDiskBundle(rawKey, ext);
+            if (cached != null) {
+                putMemoryCache(rawKey, cached);
+                return new BundleResult(cached, true);
+            }
         }
+
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection)new URL(address).openConnection();
@@ -623,7 +659,7 @@ final class PddPage extends LinearLayout {
             connection.setRequestProperty("Accept-Encoding", "gzip");
             if (connection.getResponseCode() != 200) return null;
             String type = connection.getContentType();
-            boolean expectCss = !patched && isCssAsset(address);
+            boolean expectCss = ".css".equals(ext);
             if (type == null || (expectCss ? !type.contains("css") : !(type.contains("javascript") || type.contains("ecmascript")))) return null;
             InputStream raw = connection.getInputStream();
             if ("gzip".equalsIgnoreCase(connection.getContentEncoding())) raw = new GZIPInputStream(raw);
@@ -635,24 +671,33 @@ final class PddPage extends LinearLayout {
                     output.write(buffer, 0, count);
                 }
                 byte[] bytes = output.toByteArray();
-                if (patched) {
-                    String refreshPart = UrlPolicy.pddRefreshPart(address);
-                    if (refreshPart != null) {
-                        String patchedSource = PddBundleAdapter.patch(refreshPart, new String(bytes, StandardCharsets.UTF_8));
-                        if (patchedSource == null) return null;
-                        bytes = patchedSource.getBytes(StandardCharsets.UTF_8);
-                    } else {
-                        output.reset();
-                        output.write(compatibilityScript.getBytes(StandardCharsets.UTF_8));
-                        output.write('\n');
-                        output.write(bytes);
-                        bytes = output.toByteArray();
-                    }
+                if (appBundle) {
+                    String key = "app|" + (compatibilityScript == null ? 0 : compatibilityScript.hashCode()) + "|" + address;
+                    output.reset();
+                    output.write(compatibilityScript.getBytes(StandardCharsets.UTF_8));
+                    output.write('\n');
+                    output.write(bytes);
+                    bytes = output.toByteArray();
+                    putMemoryCache(key, bytes);
+                    writeDiskBundle(key, ext, bytes);
+                    return new BundleResult(bytes, false);
                 }
-                if (cachedAssets.size() >= 32) cachedAssets.clear();
-                cachedAssets.put(memKey, bytes);
-                writeDiskBundle(address, patched, bytes);
-                return bytes;
+                if (numericChunk) {
+                    String source = new String(bytes, StandardCharsets.UTF_8);
+                    String patchedSource = PddBundleAdapter.patchNumericChunk(source);
+                    if (patchedSource != null) {
+                        byte[] patchedBytes = patchedSource.getBytes(StandardCharsets.UTF_8);
+                        String patchedKey = "patched|" + PddBundleAdapter.VERSION + "|" + address;
+                        putMemoryCache(patchedKey, patchedBytes);
+                        writeDiskBundle(patchedKey, ext, patchedBytes);
+                        return new BundleResult(patchedBytes, false);
+                    }
+                    if (UrlPolicy.pddRefreshPart(address) != null) return null;
+                }
+                String rawKey = "raw|" + address;
+                putMemoryCache(rawKey, bytes);
+                writeDiskBundle(rawKey, ext, bytes);
+                return new BundleResult(bytes, true);
             }
         } catch (java.io.IOException unavailable) {
             return null;

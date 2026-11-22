@@ -67,16 +67,22 @@ public final class UrlPolicy {
     public static String pddRefreshPart(String raw) {
         URI uri = httpsUri(raw);
         if (uri == null || !"pfile.pddpic.com".equalsIgnoreCase(uri.getHost()) || uri.getPath() == null) return null;
-        if (uri.getPath().matches("/mdkd/mdkd/_next/static/chunks/1235-[0-9a-f]+\\.js")) return "identity";
-        if (uri.getPath().matches("/mdkd/mdkd/_next/static/chunks/(?:8905|5709)-[0-9a-f]+\\.js")) return "parcels";
+        if (uri.getPath().matches("/mdkd/mdkd/_next/static/chunks/(?:1235|8173)-[0-9a-f]+\\.js")) return "identity";
+        if (uri.getPath().matches("/mdkd/mdkd/_next/static/chunks/(?:8905|5709|5685)-[0-9a-f]+\\.js")) return "parcels";
         return null;
+    }
+
+    public static boolean isPddNumericChunk(String raw) {
+        URI uri = httpsUri(raw);
+        return uri != null && "pfile.pddpic.com".equalsIgnoreCase(uri.getHost()) && uri.getPath() != null
+            && uri.getPath().matches("/mdkd/mdkd/_next/static/chunks/[0-9]+-[0-9a-f]+\\.js");
     }
 
     public static boolean isPddImmutableStaticAsset(String raw) {
         URI uri = httpsUri(raw);
         if (uri == null || !"pfile.pddpic.com".equalsIgnoreCase(uri.getHost()) || uri.getPath() == null) return false;
         String path = uri.getPath();
-        if (path.contains("..") || isPddAppBundle(raw) || pddRefreshPart(raw) != null) return false;
+        if (path.contains("..") || isPddAppBundle(raw) || pddRefreshPart(raw) != null || isPddNumericChunk(raw)) return false;
         return path.matches("/mdkd/mdkd/_next/static/chunks/.+(?:[-.])[0-9a-f]+\\.js")
             || path.matches("/mdkd/mdkd/_next/static/css/(?:.+[-.])?[0-9a-f]+\\.css");
     }
