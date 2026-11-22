@@ -7,8 +7,8 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     private static let keyLastTab = "last_tab"
     private static let keyAppBuildStamp = "app_build_stamp"
     private static let keyTaobaoLoginRequired = "taobao_login_required"
-    private static let prewarmFallbackDelay: TimeInterval = 2.0
-    private static let prewarmStagger: TimeInterval = 0.45
+    private static let prewarmFallbackDelay: TimeInterval = 2.4
+    private static let prewarmStagger: TimeInterval = 0.8
 
     private let header = UIView()
     private let titleViewport = UIView()
@@ -348,6 +348,7 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     }
 
     private func armPrewarmFallback() {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         guard !prewarmArmed, !SiteDataClearer.shared.isBusy else { return }
         prewarmArmed = true
         prewarmTimer?.invalidate()
@@ -357,6 +358,7 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     }
 
     private func onTabSettled(_ tab: Int) {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         guard tab == selected, !SiteDataClearer.shared.isBusy,
               UIApplication.shared.applicationState != .background else { return }
         prewarmArmed = true
