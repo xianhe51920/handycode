@@ -282,6 +282,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-trollstore, build-altstore]
     if: always() && needs.build-trollstore.result == 'success'
+    permissions:
+      contents: write
     timeout-minutes: 10
 
     steps:
