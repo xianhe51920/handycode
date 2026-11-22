@@ -6,6 +6,9 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     private static let keyThemeMode = "theme_mode"
     private static let keyLastTab = "last_tab"
     private static let keyAppBuildStamp = "app_build_stamp"
+    private static let keyTaobaoLoginRequired = "taobao_login_required"
+    private static let prewarmFallbackDelay: TimeInterval = 2.0
+    private static let prewarmStagger: TimeInterval = 0.45
 
     private let header = UIView()
     private let titleViewport = UIView()
@@ -38,9 +41,12 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
     private var savedBrightness: CGFloat?
     private var scanBoosted = false
     private var scanTimer: Timer?
+    private var prewarmTimer: Timer?
+    private var prewarmArmed = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        WebAssets.preload()
         loadInitialPreferences()
         buildUI()
         wireCallbacks()
@@ -57,6 +63,7 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         NotificationCenter.default.removeObserver(self)
         restoreBrightness()
         scanTimer?.invalidate()
+        prewarmTimer?.invalidate()
         displayLink?.invalidate()
     }
 
@@ -66,9 +73,13 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         if reset {
             defaults.removeObject(forKey: Self.keyThemeMode)
             defaults.removeObject(forKey: Self.keyLastTab)
+            defaults.removeObject(forKey: Self.keyTaobaoLoginRequired)
         } else {
             detectAppUpgrade(defaults)
         }
+        let loginRequired = defaults.bool(forKey: Self.keyTaobaoLoginRequired)
+        cainiaoPage.setLoginRequired(loginRequired)
+        taobaoPage.assumeLoggedOut = loginRequired
         let storedTheme = defaults.integer(forKey: Self.keyThemeMode)
         if storedTheme == AppThemeMode.dark.rawValue {
             dark = true
@@ -100,6 +111,7 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         if let prevStamp = defaults.string(forKey: Self.keyAppBuildStamp), prevStamp != currentStamp {
             SiteDataClearer.shared.clearHttpCache()
             taobaoPage.markUpgradeFreshLoad()
+            defaults.set(false, forKey: Self.keyTaobaoLoginRequired)
         }
         defaults.set(currentStamp, forKey: Self.keyAppBuildStamp)
     }
@@ -172,17 +184,31 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         view.addSubview(bottomBar)
     }
 
+    private func setTaobaoSignedIn(_ signed: Bool) {
+        signedIn[1] = signed
+        let required = !signed
+        if cainiaoPage.isLoginRequired != required {
+            UserDefaults.standard.set(required, forKey: Self.keyTaobaoLoginRequired)
+            cainiaoPage.setLoginRequired(required)
+        }
+        taobaoPage.assumeLoggedOut = required
+    }
+
     private func wireCallbacks() {
         cainiaoPage.onOpenTaobao = { [weak self] in
             self?.selectPage(1)
         }
         cainiaoPage.onLoginRequired = { [weak self] in
-            self?.signedIn[1] = false
+            self?.setTaobaoSignedIn(false)
+        }
+        cainiaoPage.onSettled = { [weak self] in
+            self?.onTabSettled(0)
         }
         taobaoPage.onSessionChanged = { [weak self] signed in
-            guard let self else { return }
-            self.signedIn[1] = signed
-            if signed { self.cainiaoPage.setLoginRequired(false) }
+            self?.setTaobaoSignedIn(signed)
+        }
+        taobaoPage.onSettled = { [weak self] in
+            self?.onTabSettled(1)
         }
         taobaoPage.onRequestLogout = { [weak self] in
             self?.confirmLogout(page: 1)
@@ -198,6 +224,9 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         pddPage.onSessionChanged = { [weak self] signed in
             self?.signedIn[2] = signed
         }
+        pddPage.onSettled = { [weak self] in
+            self?.onTabSettled(2)
+        }
         pddPage.onRequestLogout = { [weak self] in
             self?.confirmLogout(page: 2)
         }
@@ -208,6 +237,9 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         }
         jdPage.onSessionChanged = { [weak self] signed in
             self?.signedIn[3] = signed
+        }
+        jdPage.onSettled = { [weak self] in
+            self?.onTabSettled(3)
         }
         jdPage.onRequestLogout = { [weak self] in
             self?.confirmLogout(page: 3)
@@ -311,7 +343,50 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         case 3: jdPage.showPage()
         default: break
         }
+        armPrewarmFallback()
         scheduleScanCheck()
+    }
+
+    private func armPrewarmFallback() {
+        guard !prewarmArmed, !SiteDataClearer.shared.isBusy else { return }
+        prewarmArmed = true
+        prewarmTimer?.invalidate()
+        prewarmTimer = Timer.scheduledTimer(withTimeInterval: Self.prewarmFallbackDelay, repeats: false) { [weak self] _ in
+            self?.prewarmNextTab()
+        }
+    }
+
+    private func onTabSettled(_ tab: Int) {
+        guard tab == selected, !SiteDataClearer.shared.isBusy,
+              UIApplication.shared.applicationState != .background else { return }
+        prewarmArmed = true
+        prewarmTimer?.invalidate()
+        prewarmTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            self?.prewarmNextTab()
+        }
+    }
+
+    private func prewarmNextTab() {
+        guard !SiteDataClearer.shared.isBusy,
+              UIApplication.shared.applicationState != .background else { return }
+        for tab in [1, 2, 0, 3] {
+            if tab == selected || opened[tab] { continue }
+            if (tab == 0 || tab == 1) && cainiaoPage.isLoginRequired { continue }
+            opened[tab] = true
+            renderSwitchPosition()
+            switch tab {
+            case 0: cainiaoPage.prewarmPage()
+            case 1: taobaoPage.prewarmPage()
+            case 2: pddPage.prewarmPage()
+            case 3: jdPage.prewarmPage()
+            default: break
+            }
+            prewarmTimer?.invalidate()
+            prewarmTimer = Timer.scheduledTimer(withTimeInterval: Self.prewarmStagger, repeats: false) { [weak self] _ in
+                self?.prewarmNextTab()
+            }
+            return
+        }
     }
 
     private func confirmLogout(page: Int) {
@@ -322,18 +397,31 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "退出登录", style: .destructive) { [weak self] _ in
             guard let self else { return }
+            self.prewarmTimer?.invalidate()
+            self.prewarmArmed = false
+            self.opened[page] = false
             self.signedIn[page] = false
             SiteDataClearer.shared.clear(page: page) {
                 if page == 1 {
+                    self.opened[0] = false
+                    self.setTaobaoSignedIn(false)
                     self.taobaoPage.resetSessionView()
-                    self.cainiaoPage.setLoginRequired(true)
-                    if self.selected == 1 { self.taobaoPage.showPage() }
+                    if self.selected == 1 {
+                        self.opened[1] = true
+                        self.taobaoPage.showPage()
+                    }
                 } else if page == 2 {
                     self.pddPage.resetSessionView()
-                    if self.selected == 2 { self.pddPage.showPage() }
+                    if self.selected == 2 {
+                        self.opened[2] = true
+                        self.pddPage.showPage()
+                    }
                 } else if page == 3 {
                     self.jdPage.resetSessionView()
-                    if self.selected == 3 { self.jdPage.showPage() }
+                    if self.selected == 3 {
+                        self.opened[3] = true
+                        self.jdPage.showPage()
+                    }
                 }
             }
         })
@@ -350,12 +438,18 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "清除并重试", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            self.signedIn[1] = false
+            self.prewarmTimer?.invalidate()
+            self.prewarmArmed = false
+            self.opened[1] = false
+            self.opened[0] = false
+            self.setTaobaoSignedIn(false)
             self.taobaoPage.markUpgradeFreshLoad()
             SiteDataClearer.shared.clear(page: 1) {
                 self.taobaoPage.resetSessionView()
-                self.cainiaoPage.setLoginRequired(true)
-                if self.selected == 1 { self.taobaoPage.showPage() }
+                if self.selected == 1 {
+                    self.opened[1] = true
+                    self.taobaoPage.showPage()
+                }
             }
         })
         present(alert, animated: true)
@@ -408,9 +502,30 @@ final class MainViewController: UIViewController, UIGestureRecognizerDelegate {
 
     @objc private func appWillResignActive() {
         restoreBrightness()
+        prewarmTimer?.invalidate()
+        cainiaoPage.pausePage()
+        taobaoPage.pausePage()
+        pddPage.idlePage()
+        jdPage.pausePage()
     }
 
     @objc private func appDidBecomeActive() {
+        if !SiteDataClearer.shared.isBusy {
+            switch selected {
+            case 0: cainiaoPage.showPage()
+            case 1: taobaoPage.showPage()
+            case 2: pddPage.showPage()
+            case 3: jdPage.showPage()
+            default: break
+            }
+            if !prewarmArmed { armPrewarmFallback() }
+            else {
+                prewarmTimer?.invalidate()
+                prewarmTimer = Timer.scheduledTimer(withTimeInterval: Self.prewarmStagger, repeats: false) { [weak self] _ in
+                    self?.prewarmNextTab()
+                }
+            }
+        }
         pollScanBrightness()
     }
 

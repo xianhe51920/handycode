@@ -13,7 +13,13 @@ final class HandyCodeTests: XCTestCase {
 
         XCTAssertTrue(UrlPolicy.isPddAllowed(UrlPolicy.pddEntry))
         XCTAssertTrue(UrlPolicy.isPddPackagePage(UrlPolicy.pddEntry))
+        XCTAssertTrue(UrlPolicy.isPddAddPackagePage("https://m.pinduoduo.net/mdkd/add-package"))
+        XCTAssertTrue(UrlPolicy.isPddPhonePage("https://m.pinduoduo.net/mdkd/cellPhoneList"))
         XCTAssertTrue(UrlPolicy.isPddLoginPage("https://m.pinduoduo.net/login.html"))
+        XCTAssertTrue(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-4556c45dd113b893.js"))
+        XCTAssertTrue(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/css/9f1e2d3c4b5a6789.css"))
+        XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-21fd7eb3eb3caac5.js"))
+        XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-91966cd87947ff3c.js"))
         XCTAssertFalse(UrlPolicy.isPddAllowed("https://api.pinduoduo.com/api/test"))
         XCTAssertFalse(UrlPolicy.isPddAllowed("https://m.pinduoduo.net.evil.invalid/"))
 
@@ -229,6 +235,22 @@ final class HandyCodeTests: XCTestCase {
             vc.view.layoutIfNeeded()
         }
         XCTAssertEqual(vc.view.subviews.count, 3)
+    }
+
+    func testPreloadAndPrewarmDoNotCrash() {
+        WebAssets.preload()
+        let cainiao = CainiaoPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        let taobao = TaobaoPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        let pdd = PddPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        let jd = JdPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        cainiao.prewarmPage()
+        taobao.prewarmPage()
+        pdd.prewarmPage()
+        jd.prewarmPage()
+        cainiao.pausePage()
+        taobao.pausePage()
+        pdd.idlePage()
+        jd.pausePage()
     }
 }
 

@@ -1,5 +1,6 @@
 import UIKit
 import WebKit
+import CoreLocation
 
 final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private let cover = PickupLoadingView(singleCard: false)
@@ -11,6 +12,7 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
     private var web: WKWebView?
     private var dark = false
     private var active = false
+    private var prewarming = false
     private var pageCommitted = false
     private var sawLogin = false
     private var returnedAfterLogin = false
@@ -25,6 +27,7 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
     var onOpenClient: (() -> Void)?
     var onSessionChanged: ((Bool) -> Void)?
     var onRequestLogout: (() -> Void)?
+    var onSettled: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -80,6 +83,8 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
 
     func showPage() {
         active = true
+        prewarming = false
+        setProjectionActive(true)
         if web == nil {
             createWeb()
         } else if let web {
@@ -88,9 +93,24 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
         cover.setAnimating(!cover.isHidden)
     }
 
+    func prewarmPage() {
+        if active || prewarming || web != nil { return }
+        prewarming = true
+        createWeb()
+        cover.setAnimating(false)
+        setProjectionActive(true)
+    }
+
     func idlePage() {
         active = false
+        prewarming = false
         cover.setAnimating(false)
+        setProjectionActive(false)
+    }
+
+    private func setProjectionActive(_ enabled: Bool) {
+        guard let web, UrlPolicy.isPddPackagePage(web.url?.absoluteString) else { return }
+        web.evaluateJavaScript("window.HandyPddLayout&&window.HandyPddLayout.setActive(\(enabled ? "true" : "false"));", completionHandler: nil)
     }
 
     func resetSessionView() {
@@ -126,7 +146,12 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
 
     @discardableResult
     func goBack() -> Bool {
-        guard let web, web.canGoBack else { return false }
+        guard let web else { return false }
+        if layoutWorkflow {
+            web.evaluateJavaScript("window.HandyPddLayout&&window.HandyPddLayout.back();", completionHandler: nil)
+            return true
+        }
+        guard web.canGoBack else { return false }
         web.goBack()
         return true
     }
@@ -151,6 +176,8 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
     }
 
     @objc private func reload() {
+        sawLogin = false
+        returnedAfterLogin = false
         guard let web else { showPage(); return }
         showCover()
         actionsBar.isHidden = true
@@ -171,6 +198,12 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
 
     private func hideCover() {
         guard !cover.isHidden else { return }
+        if !active {
+            cover.isHidden = true
+            cover.setAnimating(false)
+            cover.alpha = 1
+            return
+        }
         UIView.animate(withDuration: 0.22, animations: {
             self.cover.alpha = 0
         }, completion: { _ in
@@ -226,6 +259,10 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
             return
         }
         if !mainFrame || UrlPolicy.isPddAllowed(target) {
+            if mainFrame, UrlPolicy.isPddLoginPage(target) {
+                sawLogin = true
+                onSessionChanged?(false)
+            }
             decisionHandler(.allow)
         } else {
             actionsBar.isHidden = false
@@ -251,6 +288,8 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
             guard let self, self.navigationSeq == expected, !self.cover.isHidden else { return }
             self.actionsBar.isHidden = false
             self.statusLabel.text = "页面暂未就绪，请点重试"
+            if self.prewarming && !self.active { self.idlePage() }
+            self.onSettled?()
         }
         timeoutWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 18, execute: work)
@@ -258,6 +297,11 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         pageCommitted = true
+        actionsBar.isHidden = true
+        if UrlPolicy.isPddLoginPage(webView.url?.absoluteString) {
+            sawLogin = true
+            onSessionChanged?(false)
+        }
         syncDark(webView)
     }
 
@@ -265,6 +309,10 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
         pageCommitted = true
         syncDark(webView)
         let url = webView.url?.absoluteString
+        if UrlPolicy.isPddLoginPage(url) {
+            sawLogin = true
+            onSessionChanged?(false)
+        }
         if let components = UrlPolicy.httpsComponents(url), components.path == "/index.html",
            sawLogin, !returnedAfterLogin, let entry = URL(string: UrlPolicy.pddEntry) {
             returnedAfterLogin = true
@@ -277,23 +325,73 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
         if !UrlPolicy.isPddPackagePage(url) {
             timeoutWork?.cancel()
             hideCover()
+            if prewarming && !active { idlePage() }
+            onSettled?()
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         actionsBar.isHidden = false
         statusLabel.text = "网页未打开，请检查网络后重试"
         hideCover()
+        if prewarming && !active { idlePage() }
+        onSettled?()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         actionsBar.isHidden = false
         statusLabel.text = "网页未打开，请检查网络后重试"
         hideCover()
+        if prewarming && !active { idlePage() }
+        onSettled?()
+    }
+
+    private func resolveStationCoords(_ rawPayload: String) {
+        guard let data = rawPayload.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = payload["code"] as? String, !code.isEmpty else { return }
+        let name = ((payload["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = ((payload["detail"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let queries = Array(NSOrderedSet(array: [
+            name,
+            "\(name) \(detail)".trimmingCharacters(in: .whitespacesAndNewlines),
+            "\(detail) \(name)".trimmingCharacters(in: .whitespacesAndNewlines),
+            detail
+        ].filter { !$0.isEmpty })) as? [String] ?? []
+
+        func finish(_ lng: Double, _ lat: Double) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let web = self.web,
+                      let encoded = try? JSONSerialization.data(withJSONObject: [code]),
+                      let arr = String(data: encoded, encoding: .utf8),
+                      arr.count >= 2 else { return }
+                let quotedCode = String(arr.dropFirst().dropLast())
+                web.evaluateJavaScript("window.__hcOnStationCoords&&window.__hcOnStationCoords(\(quotedCode),\(lng),\(lat));", completionHandler: nil)
+            }
+        }
+
+        func tryNext(_ index: Int) {
+            guard index < queries.count else { finish(0, 0); return }
+            CLGeocoder().geocodeAddressString(queries[index]) { placemarks, _ in
+                if let loc = placemarks?.first?.location {
+                    finish(loc.coordinate.longitude, loc.coordinate.latitude)
+                } else {
+                    tryNext(index + 1)
+                }
+            }
+        }
+        tryNext(0)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let value = message.body as? String else { return }
+        let geocodePrefix = "__HANDYCODE_PDD_GEOCODE__:"
+        if value.hasPrefix(geocodePrefix) {
+            resolveStationCoords(String(value.dropFirst(geocodePrefix.count)))
+            return
+        }
         if value == "__HANDYCODE_PDD_AUTH__:signed-in" {
             onSessionChanged?(true)
             return
@@ -309,6 +407,8 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
             hideCover()
             if phase == "cards" {
                 onSessionChanged?(true)
+                if prewarming && !active { idlePage() }
+                onSettled?()
             }
         }
     }

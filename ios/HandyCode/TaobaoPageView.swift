@@ -16,15 +16,20 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private var inlineWeb: WKWebView?
     private var dark = false
     private var active = false
+    private var prewarming = false
     private var combinedDisplayed = false
+    private var servedDirectCombined = false
+    private var forceRawEntry = false
     private var loginVisible = false
     private var loginThemeReady = false
     private var needsFreshLoad = false
     private var failed = false
     private var generation = 0
     private var pollTimer: Timer?
+    private var mergedWatchTimer: Timer?
     private var loginRevealFallback: DispatchWorkItem?
     private var deadline: TimeInterval = 0
+    private var transitionStarted: TimeInterval = 0
 
     private var combinedMarkup = ""
     private var officialIdentityScript = ""
@@ -34,10 +39,12 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private var phoneThemeScript = ""
     private var loginAgreementsScript = ""
 
+    var assumeLoggedOut = false
     var onSessionChanged: ((Bool) -> Void)?
     var onRequestLogout: (() -> Void)?
     var onRequestResetSite: (() -> Void)?
     var onOpenTaobaoApp: (() -> Void)?
+    var onSettled: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -49,8 +56,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     deinit {
         loginRevealFallback?.cancel()
         pollTimer?.invalidate()
+        mergedWatchTimer?.invalidate()
         web?.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
-        inlineWeb?.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
     }
 
     private func setup() {
@@ -168,6 +175,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
 
     func showPage() {
         active = true
+        prewarming = false
         if combinedMarkup.isEmpty {
             showError(title: "无法读取本地取件页面", detail: "请重新安装应用后重试。", showAppOption: false)
             return
@@ -179,10 +187,21 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         startPollTimer()
     }
 
+    func prewarmPage() {
+        guard !active, !prewarming, web == nil, !combinedMarkup.isEmpty else { return }
+        prewarming = true
+        createWeb()
+        cover.setAnimating(false)
+        startPollTimer()
+    }
+
     func pausePage() {
         active = false
+        prewarming = false
         pollTimer?.invalidate()
         pollTimer = nil
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = nil
         loginRevealFallback?.cancel()
         loginRevealFallback = nil
         cover.setAnimating(false)
@@ -193,6 +212,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         closeInline()
         generation += 1
         combinedDisplayed = false
+        servedDirectCombined = false
+        forceRawEntry = false
         loginVisible = false
         loginThemeReady = false
         failed = false
@@ -250,6 +271,13 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         return URLRequest(url: url, cachePolicy: policy, timeoutInterval: 30)
     }
 
+    private func themedCombinedMarkup() -> String {
+        combinedMarkup.replacingOccurrences(
+            of: "<html lang=\"zh-CN\">",
+            with: "<html lang=\"zh-CN\" data-hc-theme=\"\(dark ? "dark" : "light")\">"
+        )
+    }
+
     private func createWeb() {
         var scripts: [String] = []
         if !taobaoLoginThemeScript.isEmpty {
@@ -263,8 +291,13 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         web.uiDelegate = self
         insertSubview(web, at: 0)
         self.web = web
+        servedDirectCombined = false
         beginLoading()
-        if let request = makeEntryRequest() {
+        if !assumeLoggedOut && !forceRawEntry && !needsFreshLoad && !combinedMarkup.isEmpty,
+           let baseURL = URL(string: UrlPolicy.taobaoEntry) {
+            servedDirectCombined = true
+            web.loadHTMLString(themedCombinedMarkup(), baseURL: baseURL)
+        } else if let request = makeEntryRequest() {
             web.load(request)
         }
     }
@@ -274,9 +307,12 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         combinedDisplayed = false
         loginVisible = false
         loginThemeReady = false
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = nil
         loginRevealFallback?.cancel()
         loginRevealFallback = nil
-        deadline = CACurrentMediaTime() + 30
+        transitionStarted = CACurrentMediaTime()
+        deadline = transitionStarted + 30
         errorPanel.isHidden = true
         cover.isHidden = false
         cover.setAnimating(active)
@@ -289,6 +325,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         let expectedGen = generation
         loginRevealFallback?.cancel()
         loginRevealFallback = nil
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = nil
         if let web {
             web.stopLoading()
             web.navigationDelegate = nil
@@ -299,13 +337,14 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         }
         failed = false
         combinedDisplayed = false
+        servedDirectCombined = false
         loginVisible = false
         loginThemeReady = false
         errorPanel.isHidden = true
         cover.isHidden = false
         cover.setAnimating(active)
         SiteDataClearer.shared.clearHttpCache { [weak self] in
-            guard let self, self.generation == expectedGen, self.active else { return }
+            guard let self, self.generation == expectedGen, (self.active || self.prewarming) else { return }
             if self.web == nil {
                 self.createWeb()
             }
@@ -326,7 +365,6 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
             inlineWeb.stopLoading()
             inlineWeb.navigationDelegate = nil
             inlineWeb.uiDelegate = nil
-            inlineWeb.configuration.userContentController.removeScriptMessageHandler(forName: "hcLog")
             inlineWeb.removeFromSuperview()
             self.inlineWeb = nil
         }
@@ -337,6 +375,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     private func showError(title: String, detail: String, showAppOption: Bool) {
         failed = true
         pollTimer?.invalidate()
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = nil
         loginRevealFallback?.cancel()
         loginRevealFallback = nil
         cover.isHidden = true
@@ -346,6 +386,8 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         openIdentityButton.isHidden = !showAppOption
         resetSiteButton.isHidden = combinedMarkup.isEmpty
         errorPanel.isHidden = false
+        if prewarming && !active { pausePage() }
+        onSettled?()
         setNeedsLayout()
     }
 
@@ -356,8 +398,21 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         }
     }
 
+    private func fallbackToRawEntry() {
+        guard servedDirectCombined, !forceRawEntry, let web else { return }
+        servedDirectCombined = false
+        forceRawEntry = true
+        assumeLoggedOut = true
+        onSessionChanged?(false)
+        generation += 1
+        beginLoading()
+        if let request = makeEntryRequest() {
+            web.load(request)
+        }
+    }
+
     private func checkState() {
-        guard active, let web, !failed, !combinedDisplayed else { return }
+        guard (active || prewarming), let web, !failed, !combinedDisplayed else { return }
         if !loginVisible && CACurrentMediaTime() > deadline {
             showError(
                 title: "淘宝取件信息暂未加载完成",
@@ -373,11 +428,20 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         }
         guard sameIdentityPage(currentURL), !officialIdentityScript.isEmpty else { return }
         let expectedGen = generation
-        let probe = officialIdentityScript + "\n(function(){HandyCodeOfficialIdentity.watch(document);if(HandyCodeOfficialIdentity.ready(document))return 'ready';return HandyCodeOfficialIdentity.recover(document,Date.now());})()"
+        if servedDirectCombined {
+            web.evaluateJavaScript("!!document.getElementById('handycode-merged')") { [weak self] result, _ in
+                guard let self, self.generation == expectedGen, !self.combinedDisplayed else { return }
+                if (result as? Bool) == true {
+                    self.markCombinedDisplayed(expectedGen: expectedGen)
+                }
+            }
+            return
+        }
+        let probe = officialIdentityScript + "\n(function(){HandyCodeOfficialIdentity.watch(document);if(\(combinedGateScript))return 'gate';return HandyCodeOfficialIdentity.recover(document,Date.now());})()"
         web.evaluateJavaScript(probe) { [weak self] result, _ in
             guard let self, self.generation == expectedGen, !self.combinedDisplayed else { return }
             let status = result as? String
-            if status == "ready" {
+            if status == "gate" || status == "ready" {
                 self.applyCombined(web: web, expectedGen: expectedGen)
             } else if status == "login" {
                 self.handleLoginDetected()
@@ -401,6 +465,10 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
 
     private func handleLoginDetected() {
         guard !failed && !combinedDisplayed else { return }
+        if servedDirectCombined && !forceRawEntry {
+            fallbackToRawEntry()
+            return
+        }
         if !loginVisible {
             loginVisible = true
             onSessionChanged?(false)
@@ -427,13 +495,84 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         cover.isHidden = true
         cover.setAnimating(false)
         errorPanel.isHidden = true
+        if prewarming && !active { pausePage() }
+        onSettled?()
+    }
+
+    private func markCombinedDisplayed(expectedGen: Int) {
+        guard generation == expectedGen, !combinedDisplayed else { return }
+        loginRevealFallback?.cancel()
+        loginRevealFallback = nil
+        combinedDisplayed = true
+        forceRawEntry = false
+        assumeLoggedOut = false
+        loginVisible = false
+        errorPanel.isHidden = true
+        onSessionChanged?(true)
+        startMergedWatch(expectedGen: expectedGen)
+    }
+
+    private func startMergedWatch(expectedGen: Int) {
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            self?.waitForMergedPresentation(expectedGen: expectedGen)
+        }
+        waitForMergedPresentation(expectedGen: expectedGen)
+    }
+
+    private func waitForMergedPresentation(expectedGen: Int) {
+        guard generation == expectedGen, let web, !cover.isHidden else {
+            mergedWatchTimer?.invalidate()
+            mergedWatchTimer = nil
+            return
+        }
+        if CACurrentMediaTime() - transitionStarted >= 12 {
+            finishMergedReveal()
+            return
+        }
+        let readyScript = """
+        (function(){
+          var a=document.getElementById('identity-content'),b=document.getElementById('parcels-content');
+          if(!a||!b)return false;
+          var r=!!(a.dataset.ready&&b.dataset.ready);
+          if(r&&window.HandyPickupMotion){
+            HandyPickupMotion.cancel(a);HandyPickupMotion.cancel(b);
+            return HandyPickupMotion.isSettled(a)&&HandyPickupMotion.isSettled(b);
+          }
+          return r;
+        })()
+        """
+        web.evaluateJavaScript(readyScript) { [weak self] result, _ in
+            guard let self, self.generation == expectedGen, !self.cover.isHidden else { return }
+            if (result as? Bool) == true || CACurrentMediaTime() - self.transitionStarted >= 12 {
+                self.finishMergedReveal()
+            }
+        }
+    }
+
+    private func finishMergedReveal() {
+        mergedWatchTimer?.invalidate()
+        mergedWatchTimer = nil
+        errorPanel.isHidden = true
+        if !active {
+            cover.isHidden = true
+            cover.setAnimating(false)
+            pausePage()
+            onSettled?()
+            return
+        }
+        UIView.animate(withDuration: 0.18, animations: {
+            self.cover.alpha = 0
+        }, completion: { _ in
+            self.cover.isHidden = true
+            self.cover.setAnimating(false)
+            self.cover.alpha = 1
+            self.onSettled?()
+        })
     }
 
     private func applyCombined(web: WKWebView, expectedGen: Int) {
-        let themedHtml = combinedMarkup.replacingOccurrences(
-            of: "<html lang=\"zh-CN\">",
-            with: "<html lang=\"zh-CN\" data-hc-theme=\"\(dark ? "dark" : "light")\">"
-        )
+        let themedHtml = themedCombinedMarkup()
         guard let encoded = try? JSONSerialization.data(withJSONObject: [themedHtml]),
               let arrayStr = String(data: encoded, encoding: .utf8),
               arrayStr.count >= 2 else { return }
@@ -450,14 +589,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         web.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self, self.generation == expectedGen else { return }
             if (result as? Bool) == true {
-                self.loginRevealFallback?.cancel()
-                self.loginRevealFallback = nil
-                self.combinedDisplayed = true
-                self.loginVisible = false
-                self.cover.isHidden = true
-                self.cover.setAnimating(false)
-                self.errorPanel.isHidden = true
-                self.onSessionChanged?(true)
+                self.markCombinedDisplayed(expectedGen: expectedGen)
             }
         }
     }
@@ -480,7 +612,14 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
             decisionHandler(.cancel)
             return
         }
-        if UrlPolicy.isAllowed(target) {
+        if !mainFrame && webView == web && servedDirectCombined && !forceRawEntry && UrlPolicy.isTaobaoAuthUrl(target) {
+            decisionHandler(.cancel)
+            DispatchQueue.main.async { [weak self] in
+                self?.fallbackToRawEntry()
+            }
+            return
+        }
+        if (navigationAction.navigationType == .other && target == "about:blank") || UrlPolicy.isAllowed(target) {
             decisionHandler(.allow)
         } else {
             decisionHandler(.cancel)
@@ -491,8 +630,10 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard let url = navigationAction.request.url?.absoluteString, UrlPolicy.isAllowed(url) else { return nil }
-        if UrlPolicy.isTaobaoPhonePage(url) || UrlPolicy.isTaobaoAddPhonePage(url) || UrlPolicy.isTaobaoAddPackagePage(url) {
+        let raw = navigationAction.request.url?.absoluteString
+        let isDeferredBlank = raw == nil || raw == "about:blank"
+        guard isDeferredBlank || UrlPolicy.isAllowed(raw) else { return nil }
+        if isDeferredBlank || UrlPolicy.isTaobaoPhonePage(raw) || UrlPolicy.isTaobaoAddPhonePage(raw) || UrlPolicy.isTaobaoAddPackagePage(raw) {
             closeInline()
             let sub = WKWebView(frame: bounds, configuration: configuration)
             sub.navigationDelegate = self
@@ -526,13 +667,13 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         if webView == web {
             generation += 1
-            if !combinedDisplayed { beginLoading() }
+            if !combinedDisplayed && !loginVisible { beginLoading() }
         }
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if webView == web, !failed {
-            installObserverAndTheme(webView)
+            if !servedDirectCombined { installObserverAndTheme(webView) }
             if UrlPolicy.isTaobaoAuthUrl(webView.url?.absoluteString) {
                 handleLoginDetected()
             } else {
@@ -550,7 +691,7 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
             if needsFreshLoad {
                 needsFreshLoad = false
             }
-            installObserverAndTheme(webView)
+            if !servedDirectCombined { installObserverAndTheme(webView) }
             if !failed && UrlPolicy.isTaobaoAuthUrl(webView.url?.absoluteString) {
                 handleLoginDetected()
             } else {
@@ -584,9 +725,11 @@ final class TaobaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
             }
         } else if value == "__HANDYCODE_PHASE__:login" {
             handleLoginDetected()
-        } else if value == "__HANDYCODE_PHASE__:ready" || value == "__HANDYCODE_PHASE__:merged" {
+        } else if value == "__HANDYCODE_PHASE__:ready" {
             onSessionChanged?(true)
             checkState()
+        } else if value == "__HANDYCODE_PHASE__:merged" {
+            markCombinedDisplayed(expectedGen: generation)
         }
     }
 

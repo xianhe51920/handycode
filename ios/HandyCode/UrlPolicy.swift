@@ -50,6 +50,29 @@ enum UrlPolicy {
         return components.path == "/mdkd/package"
     }
 
+    static func isPddAddPackagePage(_ raw: String?) -> Bool {
+        guard isPddAllowed(raw), let components = httpsComponents(raw) else { return false }
+        return components.path == "/mdkd/add-package"
+    }
+
+    static func isPddPhonePage(_ raw: String?) -> Bool {
+        guard isPddAllowed(raw), let components = httpsComponents(raw) else { return false }
+        return components.path == "/mdkd/cellPhoneList"
+    }
+
+    static func isPddImmutableStaticAsset(_ raw: String?) -> Bool {
+        guard let components = httpsComponents(raw),
+              components.host?.caseInsensitiveCompare("pfile.pddpic.com") == .orderedSame else { return false }
+        let path = components.path
+        if path.contains("..") { return false }
+        if matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/pages/_app-[0-9a-f]+\\.js$")
+            || matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/(?:1235|8905|5709)-[0-9a-f]+\\.js$") {
+            return false
+        }
+        return matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/.+(?:[-.])[0-9a-f]+\\.js$")
+            || matches(path, pattern: "^/mdkd/mdkd/_next/static/css/(?:.+[-.])?[0-9a-f]+\\.css$")
+    }
+
     static func opensPddIdentity(current: String?, target: String?, mainFrame: Bool, gesture: Bool) -> Bool {
         mainFrame && gesture && isPddLoginPage(current) && target == pddIdentityAppLink
     }

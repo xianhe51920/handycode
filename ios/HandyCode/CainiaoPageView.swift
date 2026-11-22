@@ -14,14 +14,18 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
     private var web: WKWebView?
     private var dark = false
     private var active = false
+    private var prewarming = false
+    private var installed = false
     private var phase = "loading"
     private var inspectTimer: Timer?
     private var generation = 0
     private var deadline: TimeInterval = 0
+    private var phoneSince: TimeInterval = 0
     private var bootstrap = ""
 
     var onOpenTaobao: (() -> Void)?
     var onLoginRequired: (() -> Void)?
+    var onSettled: (() -> Void)?
 
     var isLoginRequired: Bool { phase == "login-required" }
 
@@ -104,6 +108,7 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
 
     func showPage() {
         active = true
+        prewarming = false
         if isLoginRequired { return }
         if bootstrap.isEmpty {
             fail("菜鸟页面资源读取失败，请重新安装。")
@@ -115,16 +120,35 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
         startInspectTimer()
     }
 
+    func prewarmPage() {
+        if active || prewarming || isLoginRequired || bootstrap.isEmpty || web != nil { return }
+        prewarming = true
+        createWeb()
+        cover.setAnimating(false)
+        inspect()
+        startInspectTimer()
+    }
+
     func pausePage() {
         active = false
+        prewarming = false
         inspectTimer?.invalidate()
         inspectTimer = nil
         cover.setAnimating(false)
     }
 
+    @discardableResult
+    func goBack() -> Bool {
+        guard let web, phase == "workflow", web.canGoBack else { return false }
+        web.goBack()
+        return true
+    }
+
     func resetSessionView() {
         pausePage()
         generation += 1
+        installed = false
+        phoneSince = 0
         phase = "loading"
         if let web {
             web.stopLoading()
@@ -163,6 +187,8 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
 
     private func beginLoading() {
         phase = "loading"
+        installed = false
+        phoneSince = 0
         deadline = CACurrentMediaTime() + 18
         errorPanel.isHidden = true
         loginPanel.isHidden = true
@@ -178,6 +204,8 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
         loginPanel.isHidden = true
         errorLabel.text = message
         errorPanel.isHidden = false
+        if prewarming && !active { pausePage() }
+        onSettled?()
     }
 
     @objc private func reload() {
@@ -202,8 +230,18 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
         }
     }
 
+    private func revealPhase(_ next: String) {
+        phase = next
+        cover.isHidden = true
+        cover.setAnimating(false)
+        errorPanel.isHidden = true
+        loginPanel.isHidden = true
+        if prewarming && !active { pausePage() }
+        onSettled?()
+    }
+
     private func inspect() {
-        guard active, let web, !isLoginRequired, !bootstrap.isEmpty else { return }
+        guard active || prewarming, let web, !isLoginRequired, !bootstrap.isEmpty else { return }
         if phase == "loading", CACurrentMediaTime() > deadline {
             fail("菜鸟身份码加载超时，请重试。")
             return
@@ -212,22 +250,40 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
         if UrlPolicy.isCainiaoLoginPage(currentURL) {
             setLoginRequired(true)
             onLoginRequired?()
+            onSettled?()
             return
         }
-        guard UrlPolicy.isCainiaoEntry(currentURL) else { return }
-        let script = bootstrap + "\n(window.HandyCodeCainiaoLayout ? window.HandyCodeCainiaoLayout.update(\(dark ? "true" : "false"), false) : 'loading')"
+        guard UrlPolicy.isCainiaoEntry(currentURL) else {
+            if UrlPolicy.isAllowed(currentURL), phase != "error" {
+                revealPhase("workflow")
+            }
+            return
+        }
+        let updateCall = "window.HandyCodeCainiaoLayout ? window.HandyCodeCainiaoLayout.update(\(dark ? "true" : "false"), false) : 'install'"
+        let script = installed ? updateCall : bootstrap + "\n;" + updateCall
         let expectedGen = generation
         web.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self, self.generation == expectedGen, let status = result as? String else { return }
+            self.installed = (status != "install")
+            guard self.active || self.prewarming else { return }
             if status == "login" {
                 self.setLoginRequired(true)
                 self.onLoginRequired?()
+                self.onSettled?()
             } else if status == "ready" {
-                self.phase = "ready"
-                self.cover.isHidden = true
-                self.cover.setAnimating(false)
-                self.errorPanel.isHidden = true
-                self.loginPanel.isHidden = true
+                self.phoneSince = 0
+                self.revealPhase("ready")
+            } else if status == "workflow" {
+                self.phoneSince = 0
+                self.revealPhase("workflow")
+            } else if status == "phone" {
+                let now = CACurrentMediaTime()
+                if self.phoneSince == 0 { self.phoneSince = now }
+                if now - self.phoneSince >= 1.0 {
+                    self.revealPhase("workflow")
+                }
+            } else {
+                self.phoneSince = 0
             }
         }
     }
@@ -248,15 +304,29 @@ final class CainiaoPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScrip
         beginLoading()
     }
 
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        if UrlPolicy.isCainiaoLoginPage(webView.url?.absoluteString) {
+            setLoginRequired(true)
+            onLoginRequired?()
+            onSettled?()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        inspect()
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         inspect()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         fail("菜鸟页面暂时无法连接，请重试。")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
         fail("菜鸟页面暂时无法连接，请重试。")
     }
 

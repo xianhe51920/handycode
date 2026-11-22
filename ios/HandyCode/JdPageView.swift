@@ -13,6 +13,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
     private var web: WKWebView?
     private var dark = false
     private var active = false
+    private var prewarming = false
     private var loading = true
     private var signedIn = false
     private var loginRequired = false
@@ -28,6 +29,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
 
     var onChanged: (() -> Void)?
     var isSignedIn: Bool { signedIn }
+    var isLoading: Bool { loading }
     var wantsLogin: Bool { loginOpen }
 
     override init(frame: CGRect) {
@@ -91,10 +93,23 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
     }
 
     func resumePage() {
+        prewarming = false
         active = true
         if web == nil && !script.isEmpty { createWeb() }
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.sample()
+        }
+        present()
+    }
+
+    func prewarmPage() {
+        if web != nil || script.isEmpty { return }
+        prewarming = true
+        active = true
+        createWeb()
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.sample()
         }
         present()
@@ -102,6 +117,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
 
     func pausePage() {
         active = false
+        prewarming = false
         pollTimer?.invalidate()
         pollTimer = nil
         skeleton.setAnimating(false)
@@ -193,6 +209,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
             loading = false
             errorText = "京东身份码加载超时，请点击重试"
             present()
+            onChanged?()
             return
         }
         let currentURL = web.url?.absoluteString
@@ -225,6 +242,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
                 self.loading = false
                 self.errorText = "京东身份码暂时不可用，请点击重试"
                 self.present()
+                self.onChanged?()
             }
         }
     }
@@ -234,7 +252,7 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
         refreshButton.isEnabled = !loading
         refreshButton.setTitleColor(loading ? AppTheme.muted(dark) : AppTheme.accentText(dark), for: .normal)
         skeleton.isHidden = !loading || loginOpen
-        skeleton.setAnimating(active && loading && !loginOpen)
+        skeleton.setAnimating(active && loading && !loginOpen && !prewarming)
         let showNotice = !loading && !signedIn && !loginOpen
         noticeLabel.isHidden = !showNotice
         if showNotice {
@@ -250,8 +268,28 @@ final class JdIdentityCardView: UIView, WKNavigationDelegate, WKScriptMessageHan
         decisionHandler(JdUrlPolicy.allowed(target) ? .allow : .cancel)
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        sample()
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         sample()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        loading = false
+        errorText = "京东身份码暂时无法连接，请点击重试"
+        present()
+        onChanged?()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        loading = false
+        errorText = "京东身份码暂时无法连接，请点击重试"
+        present()
+        onChanged?()
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -291,6 +329,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
     private var web: WKWebView?
     private var dark = false
     private var paused = true
+    private var prewarming = false
     private var loading = true
     private var loginVisible = false
     private var orderSignedIn = false
@@ -309,6 +348,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
 
     var onSessionChanged: ((Bool) -> Void)?
     var onRequestLogout: (() -> Void)?
+    var onSettled: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -334,6 +374,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
                 self.reload()
             }
             self.updatePresentation()
+            self.checkSettled()
         }
         scrollView.addSubview(identityCard)
 
@@ -389,11 +430,26 @@ final class JdPageView: UIView, WKNavigationDelegate {
     }
 
     func showPage() {
+        prewarming = false
         paused = false
         identityCard.resumePage()
         if web == nil && !ordersScript.isEmpty { createWeb() }
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.85, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { [weak self] _ in
+            self?.sample()
+        }
+        sample()
+        updatePresentation()
+    }
+
+    func prewarmPage() {
+        guard web == nil, !ordersScript.isEmpty, paused else { return }
+        prewarming = true
+        paused = false
+        identityCard.prewarmPage()
+        createWeb()
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
             self?.sample()
         }
         sample()
@@ -402,10 +458,17 @@ final class JdPageView: UIView, WKNavigationDelegate {
 
     func pausePage() {
         paused = true
+        prewarming = false
         pollTimer?.invalidate()
         pollTimer = nil
         skeleton.setAnimating(false)
         identityCard.pausePage()
+    }
+
+    private func checkSettled() {
+        guard !loading, (!identityCard.isLoading || loginVisible) else { return }
+        if prewarming && !paused { pausePage() }
+        onSettled?()
     }
 
     func resetSessionView() {
@@ -491,6 +554,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
             isBusyError = false
             renderBody()
             updatePresentation()
+            checkSettled()
             return
         }
         let url = web.url?.absoluteString
@@ -504,6 +568,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
                 self.loginVisible = true
                 self.loading = false
                 self.updatePresentation()
+                self.checkSettled()
                 return
             }
             let problem = (data["problem"] as? String) ?? ""
@@ -516,6 +581,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
                 self.errorMessage = self.isBusyError ? "京东订单页面当前繁忙，请稍后点刷新重试。" : "京东官方订单页暂时无法加载，请稍后重试。"
                 self.renderBody()
                 self.updatePresentation()
+                self.checkSettled()
                 return
             }
             self.setOrderSignedIn(true)
@@ -527,6 +593,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
             self.isBusyError = false
             self.renderBody()
             self.updatePresentation()
+            self.checkSettled()
         }
     }
 
@@ -545,7 +612,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
         web?.isHidden = !showWeb
         scrollView.isHidden = showWeb || identityLogin
         logoutButton.isHidden = showWeb || identityLogin || !(orderSignedIn || identitySignedIn)
-        skeleton.setAnimating(loading && !paused && !showWeb)
+        skeleton.setAnimating(!prewarming && loading && !paused && !showWeb)
         setNeedsLayout()
     }
 
@@ -731,6 +798,7 @@ final class JdPageView: UIView, WKNavigationDelegate {
                   let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let data, let img = UIImage(data: data) else { return }
             DispatchQueue.main.async {
+                if self.imageCache.count >= 20 { self.imageCache.removeAll() }
                 self.imageCache[urlString] = img
                 imageView.image = img
             }
@@ -763,8 +831,34 @@ final class JdPageView: UIView, WKNavigationDelegate {
         decisionHandler(JdUrlPolicy.allowed(target) ? .allow : .cancel)
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        sample()
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         sample()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        loading = false
+        loginVisible = false
+        errorMessage = "京东页面暂时无法连接，请重试。"
+        isBusyError = false
+        renderBody()
+        updatePresentation()
+        checkSettled()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code == NSURLErrorCancelled { return }
+        loading = false
+        loginVisible = false
+        errorMessage = "京东页面暂时无法连接，请重试。"
+        isBusyError = false
+        renderBody()
+        updatePresentation()
+        checkSettled()
     }
 
     override func layoutSubviews() {

@@ -36,6 +36,7 @@
  var links = new WeakMap(), savedStyles = new WeakMap(), signatures = {}, started = Date.now(), triedPackage = false, lastPhase, darkOverride = null;
  var props = ['display','box-sizing','color','background-color','background-image','background-size','background-position','background-repeat','font-family','font-size','font-weight','line-height','letter-spacing','text-align','white-space','word-break','padding-top','padding-right','padding-bottom','padding-left','margin-top','margin-right','margin-bottom','margin-left','border-top','border-right','border-bottom','border-left','border-radius','box-shadow','opacity','align-items','align-self','justify-content','flex-direction','flex-wrap','flex-grow','flex-shrink','gap','width','height','min-width','min-height','max-width','max-height','position','top','right','bottom','left','transform'];
  var parcelProps = ['flex-basis','object-fit','overflow-x','overflow-y','text-overflow','-webkit-line-clamp','-webkit-box-orient','grid-template-columns','grid-template-rows','grid-column','grid-row','column-gap','row-gap'];
+ var allParcelProps = props.concat(parcelProps);
  var responsiveSize = /^(?:width|height|min-width|min-height|max-width|max-height|flex-basis|grid-template-columns|grid-template-rows)$/;
  function isDark() {
   if (darkOverride !== null) return darkOverride;
@@ -124,7 +125,7 @@
    : '<div class="hc-pdd-placeholder hc-pdd-parcels-placeholder" aria-label="正在加载待取包裹">' + HandyPickupMotion.loadingMarkup() + '</div>';
  }
  function hideParcelExtra(node) {
-  if (node.matches('.package-location-phone,.package-item-fill,.package-picture-check,.package-item-operate,.package-pick-disable-tip,.goods-return-tag')) return true;
+  if (node.matches('.package-location-phone,.package-item-fill,.package-picture-check,.package-item-operate,.package-pick-disable-tip,.goods-return-tag,.package-none-tip-text,.package-none-bind,.package-none-bind-item')) return true;
   if (node.matches('.package-tags') && node.childElementCount > 0 &&
       Array.from(node.children).every(function (tag) { return tag.matches('.goods-return-tag'); })) return true;
   // The menu is the icon-only sibling of the label and value, not the pickup code itself.
@@ -205,10 +206,13 @@
   if (copy.tagName === 'A') { copy.removeAttribute('href'); copy.removeAttribute('target'); }
   if (copy.tagName === 'IMG' && node.currentSrc) copy.src = node.currentSrc;
   var sizing = parcel && node.computedStyleMap && node.computedStyleMap();
-  (parcel ? props.concat(parcelProps) : props).forEach(function (name) {
+  var propList = parcel ? allParcelProps : props;
+  for (var i = 0; i < propList.length; i++) {
+   var name = propList[i];
    var original = sizing && responsiveSize.test(name) && sizing.get(name);
-   copy.style.setProperty(name, original ? String(original) : computed.getPropertyValue(name), 'important');
-  });
+   var val = original ? String(original) : computed.getPropertyValue(name);
+   if (val) copy.style.setProperty(name, val, 'important');
+  }
   css(copy, {'touch-action':'pan-y'});
   if (!parcel) css(copy, {'max-width':'100%','box-sizing':'border-box','overflow':'visible'});
   if (/^(fixed|sticky)$/.test(computed.position) || /auto|scroll/.test(computed.overflowY)) css(copy, {position:'static',height:'auto','max-height':'none',transform:'none',overflow:'visible'});
@@ -320,6 +324,12 @@
     content.className = 'hc-pdd-parcel-groups';
     copy.className = 'hc-pdd-parcel-group';
     css(copy, {display:'grid',position:'relative',gap:'clamp(6px, 2vw, 10px)',padding:'0'});
+   } else {
+    content.className = 'hc-pdd-empty';
+    css(copy, {display:'flex','flex-direction':'column','align-items':'center','justify-content':'center',padding:'0',margin:'0','text-align':'center'});
+    Array.from(copy.children).forEach(function (child) {
+     css(child, {margin:'0',padding:'0','font-size':'14px','line-height':'1.5','text-align':'center','text-wrap':'balance'});
+    });
    }
    content.appendChild(copy);
   });
@@ -380,7 +390,7 @@
    var work = pendingParts;
    pendingParts = 0;
    update(work);
-  }, Math.max(160, 800 - (Date.now() - lastTouch)));
+  }, Math.max(25, 800 - (Date.now() - lastTouch)));
  }
  function affectedParts(node, subtree) {
   var el = node.nodeType === 1 ? node : node.parentElement;
@@ -509,6 +519,10 @@
    original.click(); queue(BOTH);
    return;
   }
+  if (original.closest('.add-package')) {
+   location.href = 'https://m.pinduoduo.net/mdkd/add-package';
+   return;
+  }
   // Switch-code controls update in place. Other official actions temporarily
   // reveal the original page so its forms and dialogs remain usable.
   if (!original.closest('.identification-code-tips')) workflow(true);
@@ -553,7 +567,8 @@ html[data-hc-theme="dark"] .hc-pdd-heading-actions ::before{border-color:#465164
 @media(max-width:340px){.hc-pdd-heading{padding-inline:10px;gap:6px}.hc-pdd-heading h2{font-size:15px}.hc-pdd-heading-actions{gap:10px}.hc-pdd-heading button,.hc-pdd-heading a{font-size:11px}.hc-pdd-heading-actions :is(button,a):not([hidden]) ~ :is(button,a):not([hidden])::before{left:-5px}}
 .hc-pdd-content{position:relative;padding:16px 10px;min-width:0;overflow:visible}
 #hc-pdd-identity{height:var(--hc-identity-height,202px);padding:10px;display:flex;align-items:center;justify-content:center}
-#hc-pdd-parcels{min-height:140px;padding:10px}
+#hc-pdd-parcels{min-height:140px;padding:10px;display:flex;flex-direction:column}
+.hc-pdd-empty{flex:1;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 12px}
 .hc-pdd-parcel-groups{display:grid;gap:clamp(18px, 6vw, 28px);padding:8px clamp(6px, 3.5vw, 14px);min-width:0}
 .hc-pdd-parcel-group{min-width:0}
 .hc-pdd-parcel-group::before{content:'';position:absolute;left:7px;top:18px;bottom:6px;border-left:1px solid var(--hc-parcel-guide,#e9ecf0);pointer-events:none}
@@ -565,7 +580,7 @@ html[data-hc-theme="dark"] .hc-pdd-heading-actions ::before{border-color:#465164
 .hc-pdd-barcode,.hc-pdd-qr{background:#fff!important;padding:8px 10px!important;border-radius:10px!important}
 .hc-pdd-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 8px;overflow:hidden}
 .hc-pdd-identity-placeholder{height:100%;justify-content:center;gap:12px;padding:0 8px}
-.hc-pdd-parcels-placeholder{height:100%;justify-content:center;gap:10px}
+.hc-pdd-parcels-placeholder{flex:1;height:100%;justify-content:center;gap:10px}
 .hc-pdd-wait{padding:20px 8px;color:#89919d;text-align:center;font-size:12px}
 .hc-pdd-refresh-notice{margin:8px 0 0;padding:4px 8px;color:#5f6878}
 #hc-pdd-back{position:fixed;left:0;right:0;top:0;height:44px;z-index:2147483647;background:#fff;border-bottom:1px solid #e9ecf0;display:flex;align-items:center;padding:0 14px}

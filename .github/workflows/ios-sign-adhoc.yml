@@ -31,7 +31,7 @@ on:
 env:
   APP_NAME: HandyCode
   BUNDLE_ID: com.fairycrane.handycode
-  VERSION: "0.8.4"
+  VERSION: "0.8.6"
   SCHEME: HandyCode
 
 jobs:
@@ -289,21 +289,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ios-signed-latest
-          name: "HandyCode iOS ${{ env.VERSION }} — TrollStore & AltStore"
-          body: |
-            ## HandyCode iOS 双渠道分发
-
-            | 文件 | 适用人群 | 有效期 |
-            |------|---------|-------|
-            | `HandyCode-${{ env.VERSION }}-trollstore.ipa` | iOS 14–16.6.1 / 17.0部分机型 | **永久** |
-            | `HandyCode-${{ env.VERSION }}-altstore.ipa` | 所有 iOS 版本 | 7天自动续签 |
-
-            ### 安装方式
-            👉 **[打开安装引导页](https://github.com/${{ github.repository }}/releases/download/ios-signed-latest/index.html)**（在 iPhone Safari 中打开）
-
-            ---
-            签名时间: ${{ github.run_started_at }}
-            下次自动发布: 6天后
+          name: "HandyCode iOS ${{ env.VERSION }} — 全版本安装与无限续签指南"
+          body_path: docs/releases/ios-guide.md
           fail_on_unmatched_files: false
           files: |
             dist/*

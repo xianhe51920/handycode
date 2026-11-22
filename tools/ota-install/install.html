@@ -153,14 +153,14 @@
       const now = new Date();
       const daysLeft = expireAt ? Math.ceil((expireAt - now) / 86400000) : null;
 
-      let verText = `版本 ${info.version || "0.8.4"}`;
+      let verText = `版本 ${info.version || "0.8.6"}`;
       if (daysLeft !== null) {
         const color = daysLeft <= 1 ? "#ff3b30" : daysLeft <= 2 ? "#ff9500" : "#34c759";
         verText += ` &nbsp;·&nbsp; <span style="color:${color}">剩余有效期 ${daysLeft} 天</span>`;
       }
       document.getElementById("ver-text").innerHTML = verText;
     } catch {
-      document.getElementById("ver-text").textContent = "版本 0.8.4";
+      document.getElementById("ver-text").textContent = "版本 0.8.6";
     }
   }
 
