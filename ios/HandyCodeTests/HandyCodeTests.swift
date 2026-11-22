@@ -18,8 +18,13 @@ final class HandyCodeTests: XCTestCase {
         XCTAssertTrue(UrlPolicy.isPddLoginPage("https://m.pinduoduo.net/login.html"))
         XCTAssertTrue(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-4556c45dd113b893.js"))
         XCTAssertTrue(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/css/9f1e2d3c4b5a6789.css"))
+        XCTAssertTrue(UrlPolicy.isPddNumericChunk("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8173-914a2baa3f71f059.js"))
+        XCTAssertTrue(UrlPolicy.isPddNumericChunk("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5685-81ae63372e8a5082.js"))
+        XCTAssertFalse(UrlPolicy.isPddNumericChunk("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/framework-4556c45dd113b893.js"))
         XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/pages/_app-21fd7eb3eb3caac5.js"))
         XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/1235-91966cd87947ff3c.js"))
+        XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/8173-914a2baa3f71f059.js"))
+        XCTAssertFalse(UrlPolicy.isPddImmutableStaticAsset("https://pfile.pddpic.com/mdkd/mdkd/_next/static/chunks/5685-81ae63372e8a5082.js"))
         XCTAssertFalse(UrlPolicy.isPddAllowed("https://api.pinduoduo.com/api/test"))
         XCTAssertFalse(UrlPolicy.isPddAllowed("https://m.pinduoduo.net.evil.invalid/"))
 
@@ -198,6 +203,104 @@ final class HandyCodeTests: XCTestCase {
         }
         web.loadHTMLString(html, baseURL: URL(string: "https://trade.m.jd.com/order/orderlist_jdm.shtml"))
         withExtendedLifetime((web, navSpy)) {
+            wait(for: [exp], timeout: 35.0)
+        }
+    }
+
+    func testPddSameOriginAndRefreshFallbackInWKWebView() {
+        let exp = expectation(description: "PDD dynamic chunk hooks and refresh fallback execute in WKWebView")
+        let refreshScript = WebAssets.readText("pdd-section-refresh.js") ?? ""
+        let sameOriginScript = WebAssets.readText("pdd-same-origin.js") ?? ""
+        XCTAssertFalse(refreshScript.isEmpty)
+        XCTAssertFalse(sameOriginScript.isEmpty)
+        let bridgeSpy = ConsoleBridgeSpy { message in
+            if message == "__HANDYCODE_PDD_TEST__:PASS" {
+                exp.fulfill()
+            } else if message.hasPrefix("__HANDYCODE_PDD_TEST__:FAIL:") {
+                XCTFail(message)
+                exp.fulfill()
+            }
+        }
+        let navSpy = NavigationSpy()
+        let web = WebAssets.configuredWebView(
+            frame: CGRect(x: 0, y: 0, width: 375, height: 667),
+            messageHandler: bridgeSpy,
+            documentStartScripts: [refreshScript, sameOriginScript]
+        )
+        let hostWin = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.windows.first }
+            .first
+        hostWin?.addSubview(web)
+        defer { web.removeFromSuperview() }
+        web.navigationDelegate = navSpy
+        navSpy.onFail = { error in
+            XCTFail("PDD fixture navigation failed: \(error.localizedDescription)")
+        }
+        navSpy.onFinish = {
+            let js = """
+            (function(){
+              var calls = [];
+              var mods = {
+                82469: function(m, e, r) {
+                  r.d(e, { By: function(){ return function(){ return Promise.resolve(null); }; }, J7: function(){ return function(){ return { locationId: undefined, getLocationId: function(){ return Promise.resolve(null); } }; }; } });
+                },
+                96133: function(m, e, r) {
+                  var BACKEND_API = 'https://api.pinduoduo.com', isApiRequest = true;
+                  r.d(e, { Z: function(){ return {
+                    get: function(){ return Promise.resolve({ success: true, result: { longitude: '104.7', latitude: '28.9' } }); },
+                    post: function(url, data){
+                      calls.push({ url: url, data: data, tag: BACKEND_API, ok: isApiRequest });
+                      if (url === '/api/ptolemeaus/location/report') return Promise.resolve({ success: true, result: { location_id: 'ios_loc_1' } });
+                      return Promise.resolve({ success: true, result: {} });
+                    }
+                  }; } });
+                },
+                40616: function(m, e, r) { r.d(e, { p: function(){ return function(){}; } }); },
+                17984: function(m, e, r) { r.d(e, { hg: function(){ return function(name, fn){ return function(){ return function(d, g){ return fn(null, { dispatch: d, getState: g }); }; }; }; } }); },
+                12479: function(m, e, r) { r.d(e, { TL: function(){ return function(){ var d = function(a){ return typeof a === 'function' ? a(d, function(){ return {}; }) : a; }; return d; }; } }); }
+              };
+              var pageMods = {
+                67441: function(m, e, r) {
+                  var b = r(40616);
+                  var cls = 'identification-code-container';
+                  b.p(function(){ return r(96133).Z.post('/api/express_trackbox/generate_identification_code', { cls: cls }); });
+                },
+                65867: function(m, e, r) {
+                  var Et = r(17984), p = r(12479);
+                  var Ht = Et.hg('package/refreshPackagePage', function(){ return r(96133).Z.post('/api/express_trackbox/station/package', { pick_up_mode: 1 }); });
+                  var d = p.TL();
+                  e.init = function(){ return d(Ht()); };
+                }
+              };
+              window.webpackChunk_N_E.push([[1], mods]);
+              window.webpackChunk_N_E.push([[2], pageMods]);
+              function req(id) {
+                var out = {}, mod = mods[id] || pageMods[id];
+                var r = function(x){ return req(x); };
+                r.d = function(t, def){ Object.keys(def).forEach(function(k){ Object.defineProperty(t, k, { enumerable: true, get: def[k] }); }); };
+                mod({}, out, r);
+                return out;
+              }
+              var loc = req(82469), http = req(96133);
+              req(67441); req(65867);
+              http.Z.post('/api/express_trackbox/dsd/manual/add/package/v2', { station_code: 'ST_IOS', entry_source: '4' })
+                .then(function(){
+                  if (loc.J7().locationId !== 'ios_loc_1') throw new Error('location_id mismatch');
+                  return Promise.all([window.HandyPddRefresh.run('identity'), window.HandyPddRefresh.run('parcels')]);
+                })
+                .then(function(){
+                  var hasId = calls.some(function(c){ return c.url === '/api/express_trackbox/generate_identification_code'; });
+                  var hasPa = calls.some(function(c){ return c.url === '/api/express_trackbox/station/package'; });
+                  if (!hasId || !hasPa) throw new Error('missing refresh posts');
+                  console.log('__HANDYCODE_TEST__:PASS'.replace('TEST', 'PDD_TEST'));
+                })
+                .catch(function(err){ console.log('__HANDYCODE_PDD_TEST__:FAIL:' + err.message); });
+            })();
+            """
+            web.evaluateJavaScript(js, completionHandler: nil)
+        }
+        web.loadHTMLString("<html><body></body></html>", baseURL: URL(string: "https://m.pinduoduo.net/mdkd/package?tab=ID_CODE"))
+        withExtendedLifetime((web, bridgeSpy, navSpy)) {
             wait(for: [exp], timeout: 35.0)
         }
     }

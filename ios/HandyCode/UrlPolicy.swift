@@ -60,13 +60,19 @@ enum UrlPolicy {
         return components.path == "/mdkd/cellPhoneList"
     }
 
+    static func isPddNumericChunk(_ raw: String?) -> Bool {
+        guard let components = httpsComponents(raw),
+              components.host?.caseInsensitiveCompare("pfile.pddpic.com") == .orderedSame else { return false }
+        return matches(components.path, pattern: "^/mdkd/mdkd/_next/static/chunks/[0-9]+-[0-9a-f]+\\.js$")
+    }
+
     static func isPddImmutableStaticAsset(_ raw: String?) -> Bool {
         guard let components = httpsComponents(raw),
               components.host?.caseInsensitiveCompare("pfile.pddpic.com") == .orderedSame else { return false }
         let path = components.path
         if path.contains("..") { return false }
         if matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/pages/_app-[0-9a-f]+\\.js$")
-            || matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/(?:1235|8905|5709)-[0-9a-f]+\\.js$") {
+            || isPddNumericChunk(raw) {
             return false
         }
         return matches(path, pattern: "^/mdkd/mdkd/_next/static/chunks/.+(?:[-.])[0-9a-f]+\\.js$")

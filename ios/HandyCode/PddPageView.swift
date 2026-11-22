@@ -349,11 +349,22 @@ final class PddPageView: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMes
     }
 
     private func resolveStationCoords(_ rawPayload: String) {
-        guard let data = rawPayload.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let code = payload["code"] as? String, !code.isEmpty else { return }
-        let name = ((payload["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let detail = ((payload["detail"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let code: String
+        let detail: String
+        let name: String
+        if let data = rawPayload.data(using: .utf8),
+           let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let jsonCode = payload["code"] as? String, !jsonCode.isEmpty {
+            code = jsonCode
+            name = ((payload["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            detail = ((payload["detail"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            let parts = rawPayload.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard let tabCode = parts.first, !tabCode.isEmpty else { return }
+            code = tabCode
+            detail = (parts.count > 1 ? parts[1] : "").trimmingCharacters(in: .whitespacesAndNewlines)
+            name = (parts.count > 2 ? parts[2] : "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let queries = Array(NSOrderedSet(array: [
             name,
             "\(name) \(detail)".trimmingCharacters(in: .whitespacesAndNewlines),
