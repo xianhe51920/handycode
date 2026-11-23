@@ -37,9 +37,9 @@ import android.widget.TextView;
 public final class MainActivity extends Activity {
     private static final String PDD_PACKAGE = "com.xunmeng.pinduoduo";
     private static final String TAOBAO_PACKAGE = "com.taobao.taobao";
-    private static final int TAB_CAINIAO = 0, TAB_TAOBAO = 1, TAB_PDD = 2, TAB_JD = 3, PAGE_COUNT = 4;
-    private static final String[] TAB_KEYS = {"cainiao", "taobao", "pinduoduo", "jd"};
-    private static final String[] TAB_NAMES = {"菜鸟", "淘宝", "拼多多", "京东"};
+    private static final int TAB_CAINIAO = 0, TAB_TAOBAO = 1, TAB_PDD = 2, TAB_JD = 3, TAB_PICKUP = 4, PAGE_COUNT = 5;
+    private static final String[] TAB_KEYS = {"cainiao", "taobao", "pinduoduo", "jd", "pickup"};
+    private static final String[] TAB_NAMES = {"菜鸟", "淘宝", "拼多多", "京东", "取件码"};
     private static final String PREF_UI = "ui_state", KEY_LAST_TAB = "last_tab", KEY_THEME_MODE = "theme_mode";
     private static final String KEY_TAOBAO_LOGIN_REQUIRED = "taobao_login_required";
     private static final String KEY_APP_VERSION_CODE = "app_version_code", KEY_APP_UPDATE_TIME = "app_update_time";
@@ -100,6 +100,9 @@ public final class MainActivity extends Activity {
     private FrameLayout browserFrame, pinduoduoFrame;
     private PddPage pddPage;
     private JdPage jdPage;
+    private PickupSummary pickup;
+    private String pickupReader;
+    private boolean readingTaobaoPickups, readingPddPickups;
     private CainiaoPage cainiaoPage;
     private String combinedMarkup;
     private String combinedGateScript;
@@ -326,6 +329,7 @@ public final class MainActivity extends Activity {
         TaobaoLoginTheme.apply(phoneAddView, dark);
         if (pddPage != null) pddPage.setDark(dark);
         if (jdPage != null) jdPage.setDark(dark);
+        if (pickup != null) pickup.setDark(dark);
         if (cainiaoPage != null) cainiaoPage.setDark(dark);
         if (bottomBar != null) bottomBar.setDark(dark);
         updateNavigationEnabled();
@@ -361,6 +365,11 @@ public final class MainActivity extends Activity {
         if (value && SiteDataClearer.isBusy()) return;
         if (page >= 0 && page < PAGE_COUNT) {
             signedIn[page] = value;
+            if (!value && pickup != null) {
+                if (page == TAB_TAOBAO) pickup.setOrders(PickupSummary.Source.TAOBAO, null);
+                else if (page == TAB_PDD) pickup.setOrders(PickupSummary.Source.PDD, null);
+                else if (page == TAB_JD) pickup.setOrders(PickupSummary.Source.JD_MALL, null);
+            }
             if (page == TAB_TAOBAO) {
                 if (value) taobaoForceRawEntry = false;
                 setTaobaoLoginRequired(!value);
@@ -541,7 +550,8 @@ public final class MainActivity extends Activity {
         header.setBackgroundColor(AppTheme.surface(dark));
         titleViewport = new FrameLayout(this);
         titleViewport.setClipChildren(true);
-        int[] icons = {R.drawable.ic_cainiao_official, R.drawable.ic_taobao, R.drawable.ic_pinduoduo, R.drawable.ic_jd};
+        int[] icons = {R.drawable.ic_cainiao_official, R.drawable.ic_taobao, R.drawable.ic_pinduoduo,
+            R.drawable.ic_jd, R.drawable.ic_pickup};
         for (int i = 0; i < PAGE_COUNT; i++) {
             titleRows[i] = platformTitle(i, TAB_NAMES[i], icons[i]);
             titleViewport.addView(titleRows[i], new FrameLayout.LayoutParams(-1, -1));
@@ -610,7 +620,10 @@ public final class MainActivity extends Activity {
         cainiaoPage.setOnSettled(() -> onTabSettled(TAB_CAINIAO));
         cainiaoPage.setLoginRequired(getSharedPreferences(PREF_UI, MODE_PRIVATE).getBoolean(KEY_TAOBAO_LOGIN_REQUIRED, false));
         viewport.addView(cainiaoPage, new FrameLayout.LayoutParams(-1, -1));
-        platformPages = new View[] {cainiaoPage, browserFrame, pinduoduoFrame, jdPage};
+        pickup = new PickupSummary(this, this::refreshPickupCodes,
+            () -> selectPage(TAB_TAOBAO), () -> selectPage(TAB_PDD), () -> selectPage(TAB_JD));
+        viewport.addView(pickup, new FrameLayout.LayoutParams(-1, -1));
+        platformPages = new View[] {cainiaoPage, browserFrame, pinduoduoFrame, jdPage, pickup};
 
         bottomBar = new LiquidGlassBar(this);
         bottomBar.setListener(barScrubListener());
@@ -1051,6 +1064,7 @@ public final class MainActivity extends Activity {
             if (keyboard != null) keyboard.hideSoftInputFromWindow(viewport.getWindowToken(), 0);
         }
         if (selected != TAB_JD) jdPage.pausePage();
+        pickup.setActive(activityResumed && selected == TAB_PICKUP);
         if (selected != TAB_CAINIAO) cainiaoPage.pausePage();
         if (selected != TAB_TAOBAO && browser != null && (combinedDisplayed || taobaoLoginVisible || taobaoLoadFailed)) {
             browser.onPause();
@@ -1068,6 +1082,10 @@ public final class MainActivity extends Activity {
                 pddPage.idlePage();
                 jdPage.showPage();
                 opened[TAB_JD] = true;
+            } else if (selected == TAB_PICKUP) {
+                stopShimmer();
+                pddPage.idlePage();
+                opened[TAB_PICKUP] = true;
             } else if (selected == TAB_CAINIAO) {
                 stopShimmer();
                 pddPage.idlePage();
@@ -1091,6 +1109,45 @@ public final class MainActivity extends Activity {
         browser = createBrowser(false);
         browserFrame.addView(browser, 0, new FrameLayout.LayoutParams(-1, -1));
         loadCombined();
+    }
+
+    private void refreshPickupCodes() {
+        if (!activityResumed || selected != TAB_PICKUP || SiteDataClearer.isBusy()) return;
+        pickup.setOrders(PickupSummary.Source.JD_MALL, jdPage.pickupOrders());
+        if (pickupReader == null) {
+            try {
+                pickupReader = WebAssets.readText(getAssets(), "pickup-codes.js");
+            } catch (java.io.IOException unavailable) {
+                return;
+            }
+        }
+        final WebView expected = browser;
+        if (signedIn[TAB_TAOBAO] && combinedDisplayed && expected != null && !readingTaobaoPickups) {
+            final int generation = combineGeneration;
+            readingTaobaoPickups = true;
+            expected.evaluateJavascript(pickupReader, result -> {
+                readingTaobaoPickups = false;
+                if (expected == browser && generation == combineGeneration && signedIn[TAB_TAOBAO]) {
+                    applyPickupCodes(PickupSummary.Source.TAOBAO, result);
+                }
+            });
+        }
+        if (signedIn[TAB_PDD] && !readingPddPickups) {
+            readingPddPickups = true;
+            pddPage.readPickupCodes(pickupReader, result -> {
+                readingPddPickups = false;
+                if (signedIn[TAB_PDD]) applyPickupCodes(PickupSummary.Source.PDD, result);
+            });
+        }
+    }
+
+    private void applyPickupCodes(PickupSummary.Source source, String result) {
+        if (isDestroyed() || result == null || "null".equals(result)) return;
+        try {
+            pickup.setOrders(source, new org.json.JSONArray(result));
+        } catch (org.json.JSONException ignored) {
+            // Preserve the last complete view while the official page is loading.
+        }
     }
 
     private void loadCombined() {
@@ -1743,6 +1800,8 @@ public final class MainActivity extends Activity {
             else closePopup();
         } else if (selected == TAB_JD && jdPage.goBack()) {
             return;
+        } else if (selected == TAB_PICKUP && pickup.goBack()) {
+            return;
         } else if (selected == TAB_CAINIAO && cainiaoPage.goBack()) {
             return;
         } else if (selected == TAB_PDD && pddPage.goBack()) {
@@ -1777,6 +1836,7 @@ public final class MainActivity extends Activity {
         if (phoneAddView != null) phoneAddView.onPause();
         pddPage.pausePage();
         jdPage.pausePage();
+        pickup.setActive(false);
         cainiaoPage.pausePage();
         super.onPause();
     }
@@ -1795,6 +1855,7 @@ public final class MainActivity extends Activity {
         if (phoneAddView != null) phoneAddView.onResume();
         pddPage.resumePage(selected == TAB_PDD);
         jdPage.resumePage(selected == TAB_JD);
+        pickup.setActive(selected == TAB_PICKUP);
         if (selected == TAB_CAINIAO && opened[TAB_CAINIAO]) cainiaoPage.showPage();
         if (!opened[selected]) { completeSelection(selected); return; }
         if (transitionPanel != null && transitionPanel.getVisibility() == View.VISIBLE) startShimmer();
@@ -1818,6 +1879,7 @@ public final class MainActivity extends Activity {
         popupGeneration++;
         pddPage.destroyPage();
         jdPage.destroyPage();
+        pickup.destroyPage();
         cainiaoPage.resetSessionView();
         closePopup();
         if (browser != null) {
