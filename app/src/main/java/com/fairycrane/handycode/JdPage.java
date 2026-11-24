@@ -184,6 +184,15 @@ final class JdPage extends FrameLayout {
         if (value && !wasSignedIn) identity.retryAfterSharedLogin();
     }
 
+    JSONArray pickupOrders() {
+        if (!orderSignedIn || lastSnapshot.isEmpty()) return null;
+        try {
+            return new JSONObject(lastSnapshot).optJSONArray("orders");
+        } catch (JSONException ignored) {
+            return null;
+        }
+    }
+
     private TextView text(String value, int size) {
         return textDp(value, size);
     }

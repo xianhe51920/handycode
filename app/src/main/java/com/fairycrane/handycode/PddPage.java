@@ -76,6 +76,17 @@ final class PddPage extends LinearLayout {
         web.evaluateJavascript(ScanCodeVisibility.SCRIPT, callback);
     }
 
+    void readPickupCodes(String reader, android.webkit.ValueCallback<String> callback) {
+        WebView expected = web;
+        if (expected == null || destroyed || !pageCommitted || !isPackageUrl(expected.getUrl())) {
+            callback.onReceiveValue(null);
+            return;
+        }
+        long expectedNavigation = navigation;
+        expected.evaluateJavascript(reader, result -> callback.onReceiveValue(
+            !destroyed && web == expected && navigation == expectedNavigation ? result : null));
+    }
+
     PddPage(Context context, Runnable openClient, java.util.function.Consumer<Boolean> sessionChanged, Runnable requestLogout) {
         super(context);
         this.openClient = openClient;

@@ -113,7 +113,7 @@ public final class UrlPolicy {
             .matches(".*(?:^|/)(?:login|punish|verify|baxia)(?:[./_-].*)?");
     }
 
-    private static URI httpsUri(String raw) {
+    static URI httpsUri(String raw) {
         if (raw == null || raw.isEmpty() || raw.length() > 8192) return null;
         for (int i = 0; i < raw.length(); i++) {
             if (Character.isISOControl(raw.charAt(i)) || Character.isWhitespace(raw.charAt(i))
